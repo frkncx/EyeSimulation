@@ -1,8 +1,11 @@
 // A camera-type eye (human first), built in millimeters with the eye looking along +z.
 // Round parts are lathed from a 2D side profile: [distance from the axis, position along it].
 import * as THREE from 'three';
+import { rodsPerCone } from '../ui/settingsPanel.js';
 
 const R = 12; // human eye: about 24 mm across
+const AXIAL_STRETCH = 0.08; // eye length change at the strongest near- or farsightedness (drawn larger than life)
+const CORNEA_OVAL = 0.6; // extra dome height, top to bottom, at the strongest astigmatism
 
 /** Lathe a profile around the eye's axis (lathe works around y, so turn y into +z). */
 function lathe(points, segments = 128) {
@@ -60,23 +63,64 @@ function mesh(part, geometry, mat) {
 const IRIS_R = 5.6;
 const textureCache = new Map();
 
+// Tube eye (like an owl's): a wide back cup, then a tube that narrows to a large cornea, lens and iris.
+// It saves the width a round eye would need around its middle.
+const TUBE = { backR: 10.5, center: -1.5, rim: 7.2, limbusZ: 9.5, corneaR: 9, iris: 6.9, lens: 5.3, lensDepth: 1.15 };
+
 /** Width and height of each pupil shape, relative to a round pupil of the same size. */
 export const PUPIL_ASPECT = { round: [1, 1], slit: [0.35, 1.3], horizontal: [1.3, 0.4] };
 
-function pupilRadii(shape, r) {
+function pupilRadii(shape, r, irisR) {
   const [ax, ay] = PUPIL_ASPECT[shape] ?? PUPIL_ASPECT.round;
-  return [Math.min(r * ax, IRIS_R - 0.4), Math.min(r * ay, IRIS_R - 0.4)];
+  return [Math.min(r * ax, irisR - 0.4), Math.min(r * ay, irisR - 0.4)];
 }
 
 /** Iris: a disc with a pupil-shaped hole. Texture coordinates span the whole disc. */
-function irisGeometry(rx, ry) {
-  const shape = new THREE.Shape().absarc(0, 0, IRIS_R, 0, Math.PI * 2, false);
+function irisGeometry(rx, ry, irisR) {
+  const shape = new THREE.Shape().absarc(0, 0, irisR, 0, Math.PI * 2, false);
   shape.holes.push(new THREE.Path().absellipse(0, 0, rx, ry, 0, Math.PI * 2, true));
   const geo = new THREE.ShapeGeometry(shape, 64);
   const pos = geo.attributes.position;
   const uv = geo.attributes.uv;
-  for (let i = 0; i < pos.count; i++) uv.setXY(i, pos.getX(i) / (2 * IRIS_R) + 0.5, pos.getY(i) / (2 * IRIS_R) + 0.5);
+  for (let i = 0; i < pos.count; i++) uv.setXY(i, pos.getX(i) / (2 * irisR) + 0.5, pos.getY(i) / (2 * irisR) + 0.5);
   return geo;
+}
+
+/**
+ * The retina's light sensors, seen up close when the eye is cut open: small rods and larger cones,
+ * mixed by `ratio` rods per cone.
+ */
+function retinaTexture(ratio) {
+  const key = `retina/${Math.round(Math.log10(ratio) * 20)}`;
+  if (textureCache.has(key)) return textureCache.get(key);
+  const size = 128;
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const g = c.getContext('2d');
+  g.fillStyle = '#e08a6a';
+  g.fillRect(0, 0, size, size);
+  const coneShare = 1 / (1 + ratio);
+  let seed = 7;
+  const rand = () => ((seed = (seed * 1103515245 + 12345) >>> 0) / 4294967296);
+  const step = 8;
+  for (let y = 0; y < size; y += step) {
+    for (let x = 0; x < size; x += step) {
+      const px = x + (y / step % 2 ? step / 2 : 0) + (rand() - 0.5) * 2;
+      const py = y + step / 2 + (rand() - 0.5) * 2;
+      const cone = rand() < coneShare;
+      g.fillStyle = cone ? '#9c3b22' : '#f7c9ae';
+      g.beginPath();
+      g.arc(px % size, py, cone ? 3.4 : 1.7, 0, Math.PI * 2);
+      g.fill();
+    }
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(28, 8);
+  tex.userData.shared = true;
+  textureCache.set(key, tex);
+  return tex;
 }
 
 function cylinderBetween(part, a, b, radius, mat) {
@@ -95,47 +139,80 @@ function cylinderBetween(part, a, b, radius, mat) {
  */
 export function buildCameraEye({
   eyeSizeMm = 24, pupilMm = 4, pupilShape = 'round', focus = 1, retina = 'away', tapetum = 'off', irisColor = '#6b4a2e',
+  refraction = 0, astigmatism = 'off', astigmatismStrength = 0.5, eyeShape = 'round', rods = null,
 } = {}) {
   const group = new THREE.Group();
   const scale = eyeSizeMm / (2 * R);
   group.scale.setScalar(scale);
-  const [pupilRx, pupilRy] = pupilRadii(pupilShape, pupilMm / 2 / scale);
+  // Nearsighted eyes are a little too long front to back, farsighted ones a little too short.
+  group.scale.z *= 1 - AXIAL_STRETCH * refraction;
+  const tube = eyeShape === 'tube';
+  // The back of the eye is a ball of radius backR around (0, 0, cz); a round eye is all ball.
+  const backR = tube ? TUBE.backR : R;
+  const cz = tube ? TUBE.center : 0;
+  const center = new THREE.Vector3(0, 0, cz);
+  const rimR = tube ? TUBE.rim : 5.8; // where the cornea meets the white
+  const irisR = tube ? TUBE.iris : IRIS_R;
+  const [pupilRx, pupilRy] = pupilRadii(pupilShape, pupilMm / 2 / scale, irisR);
   const wiringInFront = retina === 'away';
   const hasTapetum = tapetum === 'on';
 
   // White of the eye: a shell about 0.45 mm thick, open at the front for the cornea.
+  // A tube eye's white runs straight from the back cup to the cornea.
   const frontOpening = Math.PI - Math.asin(5.8 / R);
-  const sclera = [...arc(R, 0, frontOpening), ...arc(R - 0.45, frontOpening, 0)];
+  const limbusZ = tube ? TUBE.limbusZ : -R * Math.cos(frontOpening);
+  const sclera = tube
+    ? [...arc(backR, 0, Math.PI / 2, 48, cz), [rimR, limbusZ], [rimR - 0.45, limbusZ], ...arc(backR - 0.45, Math.PI / 2, 0, 48, cz)]
+    : [...arc(R, 0, frontOpening), ...arc(R - 0.45, frontOpening, 0)];
   group.add(mesh('sclera', lathe(sclera), material('#efe9dc', { roughness: 0.5 })));
+  /** How far the inside of the tube wall is from the axis at `z`. */
+  const tubeWall = z => backR - ((backR - rimR) * (z - cz)) / (limbusZ - cz) - 0.45;
 
-  // Blood layer and retina line the inside, stopping before the front.
-  group.add(mesh('choroid', lathe(arc(R - 0.6, 0, 2.25, 60)), material('#5a2e26')));
-  group.add(mesh('retina', lathe(arc(R - 0.85, 0, 2.2, 60)), material('#e08a6a', { roughness: 0.7 })));
+  // Blood layer and retina line the inside, stopping before the front (a tube eye's line only its back cup).
+  const lining = full => (tube ? Math.PI / 2 : full);
+  group.add(mesh('choroid', lathe(arc(backR - 0.6, 0, lining(2.25), 60, cz)), material('#5a2e26')));
+  // Up close, the retina shows its mix of rods and cones.
+  const retinaMat = rods == null
+    ? material('#e08a6a', { roughness: 0.7 })
+    : material('#ffffff', { roughness: 0.7, map: retinaTexture(rodsPerCone(rods)) });
+  group.add(mesh('retina', lathe(arc(backR - 0.85, 0, lining(2.2), 60, cz)), retinaMat));
 
   // Nerve wiring: in front of the light sensors (facing away from light) or behind them.
-  const wiringR = wiringInFront ? R - 1.05 : R - 0.72;
-  group.add(mesh('wiring', lathe(arc(wiringR, 0, 2.15, 60)), material('#f4f1ea', {
+  const wiringR = wiringInFront ? backR - 1.05 : backR - 0.72;
+  group.add(mesh('wiring', lathe(arc(wiringR, 0, lining(2.15), 60, cz)), material('#f4f1ea', {
     transparent: true, opacity: wiringInFront ? 0.3 : 0.9, depthWrite: false, roughness: 0.4,
   })));
 
   // Night reflector: a shiny patch over the upper back, where light from the ground lands.
   const tapetumDir = new THREE.Vector3(0, 0.45, -0.89).normalize();
   if (hasTapetum) {
-    const cap = new THREE.SphereGeometry(R - 0.95, 64, 16, 0, Math.PI * 2, 0, 0.85);
+    const cap = new THREE.SphereGeometry(backR - 0.95, 64, 16, 0, Math.PI * 2, 0, 0.85);
     cap.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), tapetumDir));
+    cap.translate(0, 0, cz);
     group.add(mesh('tapetum', cap, material('#8fd8b4', { metalness: 0.75, roughness: 0.25, emissive: '#16382a' })));
   }
 
   // Cornea: a clear dome, thicker at the edge than you'd guess, fused to the white at the rim.
-  const limbusZ = -R * Math.cos(frontOpening);
-  const corneaR = 7.8;
-  const corneaCenter = limbusZ - Math.sqrt(corneaR ** 2 - 5.8 ** 2);
-  const rim = Math.asin(5.8 / corneaR);
+  const corneaR = tube ? TUBE.corneaR : 7.8;
+  const corneaCenter = limbusZ - Math.sqrt(corneaR ** 2 - rimR ** 2);
+  const rim = Math.asin(rimR / corneaR);
   const cornea = [
     ...arc(corneaR, Math.PI, Math.PI - rim, 24, corneaCenter),
     ...arc(corneaR - 0.55, Math.PI - rim, Math.PI, 24, corneaCenter),
   ];
-  const corneaMesh = mesh('cornea', lathe(cornea), material('#d6ecff', {
+  const corneaGeo = lathe(cornea);
+  if (astigmatism === 'on') {
+    // Astigmatism: the dome bulges more top to bottom than side to side, like a rugby ball.
+    const bulge = CORNEA_OVAL * (0.15 + 0.85 * astigmatismStrength);
+    const pos = corneaGeo.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i), y = pos.getY(i);
+      const up = x * x + y * y > 1e-6 ? (y * y) / (x * x + y * y) : 1;
+      pos.setZ(i, limbusZ + (pos.getZ(i) - limbusZ) * (1 + bulge * up));
+    }
+    corneaGeo.computeVertexNormals();
+  }
+  const corneaMesh = mesh('cornea', corneaGeo, material('#d6ecff', {
     transparent: true, opacity: 0.22, roughness: 0.05, depthWrite: false,
   }));
   corneaMesh.renderOrder = 2;
@@ -149,7 +226,7 @@ export function buildCameraEye({
     tex.userData.shared = true;
     textureCache.set(irisColor, tex);
   }
-  const iris = mesh('iris', irisGeometry(pupilRx, pupilRy), material('#ffffff', { map: textureCache.get(irisColor) }));
+  const iris = mesh('iris', irisGeometry(pupilRx, pupilRy, irisR), material('#ffffff', { map: textureCache.get(irisColor) }));
   iris.position.z = irisZ;
   group.add(iris);
   const pupilShapePath = new THREE.Shape().absellipse(0, 0, pupilRx, pupilRy, 0, Math.PI * 2, false);
@@ -160,11 +237,14 @@ export function buildCameraEye({
   group.add(pupil);
 
   // Lens: flatter at the front than at the back. Focusing near makes it rounder and thicker.
-  const lensZ = irisZ - 2.3;
+  // The iris rests on the lens front, so the front can bulge only up to the iris; the back takes the rest.
+  // A tube eye's lens is bigger and thicker.
+  const depth = tube ? TUBE.lensDepth : 1;
+  const lensZ = irisZ - 2.3 * depth;
   const near = 1 - focus;
-  const lensRadius = 4.5 - 0.35 * near;
-  const front = 1.6 + 1.1 * near;
-  const back = 2.1 + 0.6 * near;
+  const lensRadius = (tube ? TUBE.lens : 4.5) - 0.35 * near;
+  const front = (1.6 + 0.55 * near) * depth;
+  const back = (2.1 + 0.9 * near) * depth;
   const lens = [];
   for (let i = 0; i <= 48; i++) {
     const a = (i / 48) * Math.PI;
@@ -174,11 +254,14 @@ export function buildCameraEye({
 
   // Vitreous gel: fills the eye from just behind the lens and focus muscle back to the retina.
   // Profile: up the inside of the wall, in toward the lens, then along the back of the lens to the axis.
-  const gelR = R - 1.15;
+  const gelR = backR - 1.15;
   const gelFrontZ = lensZ - 1.8;
   const lensBack = a => [lensRadius * Math.sin(a) * 1.02, lensZ + (back + 0.1) * Math.cos(a)];
+  const gelWall = tube
+    ? [...arc(gelR, 0, Math.PI / 2, 48, cz), [tubeWall(gelFrontZ) - 0.7, gelFrontZ]]
+    : arc(gelR, 0, Math.acos(-gelFrontZ / gelR), 48);
   const gel = [
-    ...arc(gelR, 0, Math.acos(-gelFrontZ / gelR), 48),
+    ...gelWall,
     ...Array.from({ length: 25 }, (_, i) => lensBack(Math.PI - Math.asin(0.95) + (Math.asin(0.95) * i) / 24)),
   ];
   const gelMesh = mesh('vitreous', lathe(gel), material('#bfe3ef', {
@@ -188,62 +271,65 @@ export function buildCameraEye({
   group.add(gelMesh);
 
   // Focus muscle: a ring around the lens, joined to the eye wall.
-  const muscle = mesh('focusMuscle', new THREE.TorusGeometry(7.4, 1.1, 20, 128), material('#a85a4a'));
+  const muscleR = tube ? tubeWall(lensZ) - 1.0 : 7.4;
+  const muscle = mesh('focusMuscle', new THREE.TorusGeometry(muscleR, tube ? 0.9 : 1.1, 20, 128), material('#a85a4a'));
   muscle.position.z = lensZ;
   muscle.scale.z = 1.6;
   group.add(muscle);
 
   const nerveMat = material('#e6d3a8');
   const nerveDir = new THREE.Vector3(-Math.sin(THREE.MathUtils.degToRad(15)), 0, -Math.cos(THREE.MathUtils.degToRad(15)));
-  const onRetina = R - 0.95;
+  const onRetina = backR - 0.95;
+  /** A point `r` out from the middle of the back cup, toward `dir`. */
+  const fromCenter = (dir, r) => dir.clone().normalize().multiplyScalar(r).add(center);
   let nerveLabelAt;
   if (wiringInFront) {
     // The wiring gathers into one cable that pierces the retina: the blind spot.
     const nerve = mesh('opticNerve', new THREE.CylinderGeometry(1.5, 1.6, 14, 48), nerveMat);
-    nerve.position.copy(nerveDir).multiplyScalar(R - 0.85 + 7);
+    nerve.position.copy(fromCenter(nerveDir, backR - 0.85 + 7));
     nerve.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), nerveDir);
     group.add(nerve);
     const blindSpot = mesh('blindSpot', new THREE.CircleGeometry(1.0, 48), material('#f2d98a', { roughness: 0.8 }));
-    blindSpot.position.copy(nerveDir).multiplyScalar(onRetina);
-    blindSpot.lookAt(0, 0, 0);
+    blindSpot.position.copy(fromCenter(nerveDir, onRetina));
+    blindSpot.lookAt(center);
     group.add(blindSpot);
-    nerveLabelAt = nerveDir.clone().multiplyScalar(R + 11);
+    nerveLabelAt = fromCenter(nerveDir, backR + 11);
   } else {
     // The wiring is already behind the retina, so thin bundles leave all over the back: no hole.
-    const meet = new THREE.Vector3(0, 0, -(R + 8));
+    const meet = new THREE.Vector3(0, 0, cz - (backR + 8));
     for (let i = 0; i < 9; i++) {
       const a = (i / 9) * Math.PI * 2;
       const tilt = THREE.MathUtils.degToRad(i % 2 ? 16 : 28);
-      const start = new THREE.Vector3(Math.sin(tilt) * Math.cos(a), Math.sin(tilt) * Math.sin(a), -Math.cos(tilt)).multiplyScalar(R - 0.3);
+      const start = fromCenter(new THREE.Vector3(Math.sin(tilt) * Math.cos(a), Math.sin(tilt) * Math.sin(a), -Math.cos(tilt)), backR - 0.3);
       group.add(cylinderBetween('opticNerve', start, meet, 0.32, nerveMat));
     }
-    group.add(cylinderBetween('opticNerve', meet, new THREE.Vector3(0, 0, -(R + 16)), 1.4, nerveMat));
-    nerveLabelAt = new THREE.Vector3(0, 0, -(R + 14));
+    group.add(cylinderBetween('opticNerve', meet, new THREE.Vector3(0, 0, cz - (backR + 16)), 1.4, nerveMat));
+    nerveLabelAt = new THREE.Vector3(0, 0, cz - (backR + 14));
   }
 
   const fovea = mesh('fovea', new THREE.CircleGeometry(0.6, 48), material('#8a2a1e'));
-  fovea.position.set(0, 0, -onRetina);
-  fovea.lookAt(0, 0, 0);
+  fovea.position.set(0, 0, cz - onRetina);
+  fovea.lookAt(center);
   group.add(fovea);
 
   const v = (x, y, z) => new THREE.Vector3(x, y, z);
   const anchors = [
-    { part: 'cornea', position: v(0, 3.2, corneaCenter + corneaR - 0.6), side: 'right' },
-    { part: 'iris', position: v(0, -4.6, irisZ + 0.05), side: 'left' },
+    { part: 'cornea', position: v(0, rimR * 0.55, corneaCenter + corneaR - 0.6), side: 'right' },
+    { part: 'iris', position: v(0, -(irisR - 1), irisZ + 0.05), side: 'left' },
     { part: 'pupil', position: v(0, 0.8, irisZ + 0.1), side: 'right' },
-    { part: 'sclera', position: v(0, R, -3), side: 'right' },
+    { part: 'sclera', position: v(0, backR, cz - 3), side: 'right' },
     { part: 'opticNerve', position: nerveLabelAt, side: 'left' },
     { part: 'lens', position: v(0, 2.2, lensZ), side: 'right', inner: true },
     // These two follow the cut edge, where their cross-section shows.
-    { part: 'focusMuscle', position: v(0, 7.4, lensZ), side: 'left', inner: true, onCut: { ring: 7.4, z: lensZ } },
-    { part: 'choroid', position: v(0, 8.6, -7.6), side: 'left', inner: true, onCut: { sphere: R - 0.6, angleDeg: 135 } },
-    { part: 'vitreous', position: v(0, -2.7, -7.5), side: 'right', inner: true, onCut: { sphere: 8, angleDeg: 200 } },
+    { part: 'focusMuscle', position: v(0, muscleR, lensZ), side: 'left', inner: true, onCut: { ring: muscleR, z: lensZ } },
+    { part: 'choroid', position: v(0, 8.6, -7.6), side: 'left', inner: true, onCut: { sphere: backR - 0.6, angleDeg: tube ? 120 : 135, z: cz } },
+    { part: 'vitreous', position: v(0, -2.7, -7.5), side: 'right', inner: true, onCut: { sphere: tube ? 7 : 8, angleDeg: 200, z: cz } },
     // Back inside wall, on the half that stays: visible through the cut.
-    { part: 'retina', position: new THREE.Vector3(-0.35, -0.55, -0.76).normalize().multiplyScalar(onRetina), side: 'left', inner: true },
-    { part: 'blindSpot', position: nerveDir.clone().multiplyScalar(onRetina), side: 'left', inner: true },
-    { part: 'fovea', position: v(0, 0, -onRetina), side: 'right', inner: true },
-    { part: 'wiring', position: v(0, 0, 0), side: 'right', inner: true, onCut: { sphere: wiringR, angleDeg: 215 } },
-    { part: 'tapetum', position: new THREE.Vector3(-0.3, 0.35, -0.89).normalize().multiplyScalar(R - 1), side: 'left', inner: true },
+    { part: 'retina', position: fromCenter(v(-0.35, -0.55, -0.76), onRetina), side: 'left', inner: true },
+    { part: 'blindSpot', position: fromCenter(nerveDir, onRetina), side: 'left', inner: true },
+    { part: 'fovea', position: v(0, 0, cz - onRetina), side: 'right', inner: true },
+    { part: 'wiring', position: v(0, 0, 0), side: 'right', inner: true, onCut: { sphere: wiringR, angleDeg: 215, z: cz } },
+    { part: 'tapetum', position: fromCenter(v(-0.3, 0.35, -0.89), backR - 1), side: 'left', inner: true },
   ].filter(a => (a.part !== 'blindSpot' || wiringInFront) && (a.part !== 'tapetum' || hasTapetum));
   return { group, anchors, radius: R * scale, scale };
 }

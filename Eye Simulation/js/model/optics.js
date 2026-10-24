@@ -3,6 +3,8 @@
 // Real defocus at screen resolution is only a few pixels; we draw it larger so it's visible.
 export const DEFOCUS_DISPLAY_GAIN = 4;
 
+export const REFRACTION_MAX_D = 4; // strongest myopia or hyperopia on the slider, in diopters
+
 export const vergence = meters => (meters == null || !isFinite(meters) ? 0 : 1 / meters);
 
 /**
@@ -10,7 +12,11 @@ export const vergence = meters => (meters == null || !isFinite(meters) ? 0 : 1 /
  * Geometric optics: angular blur diameter (radians) = pupil diameter (m) x defocus (diopters).
  */
 export function defocusBlurPx(objectM, focusM, pupilMm, pxPerDeg) {
-  const defocus = Math.abs(vergence(objectM) - vergence(focusM));
-  const blurDiameterDeg = (pupilMm / 1000) * defocus * (180 / Math.PI);
+  return dioptersBlurPx(Math.abs(vergence(objectM) - vergence(focusM)), pupilMm, pxPerDeg);
+}
+
+/** Blur-circle radius in screen pixels for a focusing error of `diopters`. */
+export function dioptersBlurPx(diopters, pupilMm, pxPerDeg) {
+  const blurDiameterDeg = (pupilMm / 1000) * diopters * (180 / Math.PI);
   return 0.5 * blurDiameterDeg * pxPerDeg * DEFOCUS_DISPLAY_GAIN;
 }

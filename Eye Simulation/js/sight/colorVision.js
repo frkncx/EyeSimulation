@@ -1,44 +1,95 @@
 // How many color channels the eye has, as a 3×3 matrix on linear RGB, or a made-up color shift.
-//
-// Red-green colorblindness: Machado, Oliveira & Fernandes (2009), "A Physiologically-based Model
-// for Simulation of Color Vision Deficiency", deuteranomaly, severity 0.0 to 1.0 in steps of 0.1.
-const DEUTAN = [
-  [1, 0, 0, 0, 1, 0, 0, 0, 1],
-  [0.866435, 0.177704, -0.044139, 0.049567, 0.939063, 0.011370, -0.003453, 0.007233, 0.996220],
-  [0.760729, 0.319078, -0.079807, 0.090568, 0.889315, 0.020117, -0.006027, 0.013325, 0.992702],
-  [0.675425, 0.433850, -0.109275, 0.125303, 0.847755, 0.026942, -0.007950, 0.018572, 0.989378],
-  [0.605511, 0.528560, -0.134071, 0.155318, 0.812366, 0.032316, -0.009376, 0.023176, 0.986200],
-  [0.547494, 0.607765, -0.155259, 0.181692, 0.781742, 0.036566, -0.010410, 0.027275, 0.983136],
-  [0.498864, 0.674741, -0.173604, 0.205199, 0.754872, 0.039929, -0.011131, 0.030969, 0.980162],
-  [0.457771, 0.731899, -0.189670, 0.226409, 0.731012, 0.042579, -0.011595, 0.034333, 0.977261],
-  [0.422823, 0.781057, -0.203881, 0.245752, 0.709602, 0.044646, -0.011843, 0.037423, 0.974421],
-  [0.392952, 0.823610, -0.216562, 0.263559, 0.690210, 0.046232, -0.011910, 0.040281, 0.971630],
-  [0.367322, 0.860646, -0.227968, 0.280085, 0.672501, 0.047413, -0.011820, 0.042940, 0.968881],
-];
-
-function deutan(severity) {
-  const s = Math.min(1, Math.max(0, severity)) * 10;
-  const i = Math.min(9, Math.floor(s));
-  const f = s - i;
-  return DEUTAN[i].map((v, k) => v + (DEUTAN[i + 1][k] - v) * f);
-}
+import { sensitivity, effectivePeaks, BAR_MIN, BAR_MAX } from '../model/spectrum.js';
 
 const LUMA = [0.2126, 0.7152, 0.0722];
 
+// --- Colors from the sensor peaks ---
+//
+// Each screen pixel's red, green and blue are treated as three smooth bands of light. Each sensor's
+// response to them comes from its sensitivity curve. The responses are turned into brightness plus
+// color differences, then back into screen colors the way a normal human eye would read them.
+// A normal human gives back exactly what went in; any other set of sensors shows what it tells apart.
+
+const WAVES = Array.from({ length: (BAR_MAX - BAR_MIN) / 5 + 1 }, (_, i) => BAR_MIN + 5 * i);
+// A screen's red, green and blue as bands of light: [peak nm, width nm]. Fitted so that the human
+// and red-green deficiency results come out close to Machado et al. (2009).
+const PRIMARIES = [[618, 23], [535, 49], [431, 19]];
+const LENS_YELLOW = 0.7; // how strongly a UV-blocking lens also dims blue light (it is slightly yellow)
+const HUMAN = { peaks: [420, 530, 560], lensCutoffNm: 400 };
+
+/** How much light at `nm` gets through the lens: a soft cutoff plus a yellow tint below 480 nm. */
+const lensPass = (nm, cutoff) => (cutoff
+  ? Math.exp(-LENS_YELLOW * Math.max(0, (480 - nm) / 80) ** 1.5) / (1 + Math.exp(-(nm - cutoff) / 4))
+  : 1);
+
+/** How each sensor responds to the screen's red, green and blue. */
+function sensorRows(peaks, cutoff) {
+  return peaks.map(peak => PRIMARIES.map(([mid, width]) => WAVES.reduce((sum, nm) =>
+    sum + Math.exp(-0.5 * ((nm - mid) / width) ** 2) * sensitivity(peak, nm) * lensPass(nm, cutoff), 0)));
+}
+
+// Ingling & Tsou (1977) opponent stage, as used by Machado et al. (2009): brightness, yellow-blue
+// and red-green from the long, middle and short sensors (columns: L, M, S).
+const OPPONENT = [
+  [0.6, 0.4, 0],
+  [0.24, 0.105, -0.7],
+  [1.2, -1.6, 0.4],
+];
+
+/**
+ * Brightness, yellow-blue and red-green (3×3, on linear RGB) from the sensors, each scaled so white gives 1.
+ * Two sensors fill short and long, with the middle merged into the long.
+ * A channel with nothing to compare (one sensor) copies brightness, so the picture has no color.
+ */
+function opponent(peaks, cutoff) {
+  const rows = sensorRows([...peaks].sort((a, b) => a - b), cutoff);
+  const n = rows.length;
+  const [S, M, L] = n === 1 ? [rows[0], rows[0], rows[0]] : n === 2 ? [rows[0], rows[1], rows[1]] : rows;
+  const channels = OPPONENT.map(([wl, wm, ws]) => [0, 1, 2].map(k => wl * L[k] + wm * M[k] + ws * S[k]));
+  const scaled = channels.map(c => {
+    const white = c[0] + c[1] + c[2];
+    return Math.abs(white) < 1e-9 * Math.abs(channels[0][0] + channels[0][1] + channels[0][2]) ? null : c.map(v => v / white);
+  });
+  return scaled.flatMap(c => c ?? scaled[0]);
+}
+
+function invert3(m) {
+  const [a, b, c, d, e, f, g, h, i] = m;
+  const A = e * i - f * h, B = -(d * i - f * g), C = d * h - e * g;
+  const det = a * A + b * B + c * C;
+  return [A, -(b * i - c * h), b * f - c * e, B, a * i - c * g, -(a * f - c * d), C, -(a * h - b * g), a * e - b * d].map(v => v / det);
+}
+
+const mul3 = (p, q) => Array.from({ length: 9 }, (_, k) => {
+  const r = Math.floor(k / 3), c = k % 3;
+  return p[r * 3] * q[c] + p[r * 3 + 1] * q[3 + c] + p[r * 3 + 2] * q[6 + c];
+});
+
+const HUMAN_INVERSE = invert3(opponent(HUMAN.peaks, HUMAN.lensCutoffNm));
+
+const ROD_PEAK = 498; // nm; rods are most sensitive to blue-green light
+/** How much rods respond to the screen's red, green and blue, scaled so white gives 1. */
+export const ROD_WEIGHTS = (() => {
+  const [row] = sensorRows([ROD_PEAK], null);
+  const white = row[0] + row[1] + row[2];
+  return row.map(v => v / white);
+})();
+
+/** The 3×3 matrix on linear RGB for an eye with one to three sensors at these peaks, and its lens. */
+export function peakMatrix(peaks, lensCutoffNm, uvLens) {
+  return mul3(HUMAN_INVERSE, opponent(peaks, uvLens === 'on' ? lensCutoffNm : null));
+}
+
 /**
  * The color step for the current settings:
- *   { kind: 'matrix', m }           1 to 3 colors (real simulation)
- *   { kind: 'shift', channels: n }  4 or 5 colors (made-up colors, since screens can't show them)
+ *   { kind: 'matrix', m }           1 to 3 sensors, worked out from their peaks
+ *   { kind: 'shift', channels: n }  4 or 5 sensors (made-up colors, since screens can't show them)
  */
 export function colorStep(settings) {
-  const n = Number(settings.colors ?? 3);
-  if (n === 1) return { kind: 'matrix', m: [...LUMA, ...LUMA, ...LUMA] };
-  if (n === 2) return { kind: 'matrix', m: deutan(1) };
-  if (n === 3 && settings.colorblind === 'redGreen') {
-    return { kind: 'matrix', m: deutan(0.3 + 0.7 * (settings.colorblindStrength ?? 0.5)) };
-  }
-  if (n >= 4) return { kind: 'shift', channels: n };
-  return null;
+  const peaks = effectivePeaks(settings);
+  if (!peaks) return null;
+  if (peaks.length >= 4) return { kind: 'shift', channels: peaks.length };
+  return { kind: 'matrix', m: peakMatrix(peaks, settings.lensCutoffNm, settings.uvLens) };
 }
 
 /**

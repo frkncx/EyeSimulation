@@ -8,7 +8,16 @@
 </head>
 <body>
   <header class="eye-bar">
-    <nav id="eyeButtons" class="eye-buttons" aria-label="Eye type"></nav>
+    <div class="eye-pick">
+      <nav id="eyeButtons" class="eye-buttons" aria-label="Eye type"></nav>
+      <div class="pick-row">
+        <label class="example-pick">
+          <span data-tip="Animals with this eye type. Picking one loads its settings onto the same eye.">Example:</span>
+          <select id="exampleSelect"></select>
+        </label>
+        <div id="spectrum" class="spectrum"></div>
+      </div>
+    </div>
     <button type="button" id="resetButton" class="reset-button">↺ Reset</button>
   </header>
 
@@ -21,6 +30,7 @@
     <section class="eye-stage" aria-label="3D eye">
       <div id="eyeView" class="eye-view"></div>
       <p id="eyeMissing" class="eye-missing" hidden></p>
+      <p id="eyeNote" class="eye-note" hidden></p>
       <p class="stage-hint">Drag to rotate · Scroll to zoom · Hover a part to learn what it does</p>
       <div class="stage-tools">
         <label class="cut-control">

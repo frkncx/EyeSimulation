@@ -25,7 +25,9 @@ Then open <http://localhost:5173>.
 index.html             page: eye buttons on top; settings | 3D eye | how it sees
 serve.js               tiny static server (no npm install needed)
 css/styles.css         layout and look (selected = thick outline + ✓, never color alone)
-data/eyes.json         the eight eye types (name, shape, hint, defaults) and the part names/hover tips
+data/eyes.json         the settings, the five eye types (model, settings, allowed values), the example
+                       animals (type, defaults, narrower allowed values) and the part names/hover tips.
+                       A new animal is a few lines in "examples"; only a new eye shape needs code.
 js/
   main.js              loads data, keeps one store, wires the page
   state.js             tiny observable store

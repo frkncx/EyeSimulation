@@ -119,7 +119,7 @@ export class EyeStage {
         l.cutHidden = c >= on.sphere * 0.85;
         const rho = Math.sqrt(Math.max(0, on.sphere ** 2 - c ** 2));
         const a = THREE.MathUtils.degToRad(on.angleDeg);
-        l.object.position.set(c, rho * Math.sin(a), rho * Math.cos(a));
+        l.object.position.set(c, rho * Math.sin(a), (on.z ?? 0) + rho * Math.cos(a));
       }
     }
   }

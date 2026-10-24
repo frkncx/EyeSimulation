@@ -32,12 +32,13 @@ button { font: inherit; color: inherit; }
 
 /* Top: eye type buttons */
 .eye-bar {
-  display: flex; align-items: center; gap: 16px; padding: 12px 16px;
+  position: relative; display: flex; align-items: center; gap: 16px; padding: 12px 16px;
   background: var(--panel); border-bottom: 1px solid var(--line);
 }
-.eye-buttons { display: flex; gap: 8px; flex: 1; min-width: 0; }
+.eye-pick { flex: 1; min-width: 0; display: grid; gap: 8px; }
+.eye-buttons { display: flex; gap: 8px; min-width: 0; padding-right: 130px; }
 .eye-button {
-  position: relative; flex: 0 1 140px; min-width: 118px; height: 100px;
+  position: relative; flex: 0 1 160px; min-width: 130px; height: 84px;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
   background: var(--panel); border: 2px solid var(--line); border-radius: var(--radius);
   font-size: 15px; font-weight: 600; cursor: pointer;
@@ -47,8 +48,38 @@ button { font: inherit; color: inherit; }
 .eye-button[aria-pressed="true"]::after {
   content: "✓"; position: absolute; top: 4px; right: 8px; font-size: 18px; font-weight: 800;
 }
+.example-pick { display: flex; align-items: center; gap: 10px; font-size: 16px; font-weight: 700; }
+.example-pick span { cursor: help; text-decoration: underline dotted 1.5px; text-underline-offset: 3px; }
+.example-pick select {
+  min-width: 200px; height: 40px; padding: 0 10px;
+  background: var(--panel); border: 2px solid var(--ink); border-radius: 8px;
+  font: inherit; font-weight: 700; color: var(--ink); cursor: pointer;
+}
+.pick-row { display: flex; align-items: center; gap: 24px; min-width: 0; }
+.example-pick { flex: none; }
+
+/* Light spectrum bar, right of the Example dropdown. Fits the row's 40px so the header keeps its height. */
+.spectrum { position: relative; flex: 1; min-width: 0; height: 40px; display: flex; align-items: center; gap: 12px; }
+.spectrum-label { flex: none; display: grid; line-height: 1.15; }
+.spectrum-title {
+  font-size: 16px; font-weight: 700; cursor: help;
+  text-decoration: underline dotted 1.5px; text-underline-offset: 3px;
+}
+.spectrum-range { font-size: 14px; font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; cursor: help; }
+.spectrum-svg { flex: 1; min-width: 0; display: block; overflow: visible; touch-action: none; }
+.spectrum-svg text { font: 600 12px var(--font); fill: var(--muted); pointer-events: none; }
+.spectrum-zone { cursor: help; }
+.spectrum-handle { cursor: ew-resize; outline: none; }
+.spectrum-handle:focus-visible rect:nth-child(2) { stroke: var(--accent); stroke-width: 3; }
+.spectrum-note {
+  position: absolute; top: calc(100% + 18px); left: 0; z-index: 5; margin: 0; padding: 6px 12px;
+  background: var(--ink); color: #fff; border-radius: 8px; font-size: 15px; font-weight: 700; pointer-events: none;
+}
+.spectrum-note[hidden] { display: none; }
+/* Reset sits in the top right corner, so the spectrum row can run the full width. */
 .reset-button {
-  height: 48px; padding: 0 18px; flex: none;
+  position: absolute; top: 12px; right: 16px;
+  height: 48px; padding: 0 18px;
   background: var(--panel); border: 2px solid var(--ink); border-radius: var(--radius);
   font-size: 16px; font-weight: 700; cursor: pointer;
 }
@@ -56,7 +87,13 @@ button { font: inherit; color: inherit; }
 /* Settings panel */
 .settings { display: grid; gap: 14px; }
 .setting[hidden] { display: none; }
-.setting-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 6px; }
+.setting-group {
+  display: grid; gap: 14px; padding: 12px 0 14px;
+  border-top: 2px solid var(--line); border-bottom: 2px solid var(--line);
+}
+.setting-group h3 { margin: 0; font-size: 17px; }
+.setting-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 2px 8px; margin-bottom: 6px; }
+.setting-head .setting-value { margin-left: auto; }
 .setting-name {
   font-size: 16px; font-weight: 700; cursor: help;
   text-decoration: underline dotted 1.5px; text-underline-offset: 3px;
@@ -75,7 +112,7 @@ button { font: inherit; color: inherit; }
 .choice[aria-pressed="true"]::before { content: "✓ "; }
 
 /* How it sees: scene buttons, the view, the Light slider */
-.sight { display: grid; gap: 10px; }
+.sight { display: grid; gap: 8px; }
 .scene-picker { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
 .scene-button {
   display: flex; flex-direction: column; align-items: stretch; gap: 3px; min-height: 44px; padding: 4px;
@@ -103,8 +140,12 @@ button { font: inherit; color: inherit; }
   color: var(--stage-ink); font-size: 16px; font-weight: 600;
 }
 .sight-missing[hidden] { display: none; }
-.sight-note { margin: -4px 0 0; font-size: 15px; color: var(--ink); }
+.sight-note { margin: -5px 0 -4px; font-size: 15px; color: var(--ink); }
 .sight-note[hidden] { display: none; }
+/* Light and Focus side by side; Light takes the whole row when the eye has no focus. */
+.sight-controls { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 20px; }
+.sight-settings { display: grid; gap: 10px; }
+.sight-settings:empty { display: none; }
 
 /* Main: settings | 3D eye | how it sees */
 .layout {
@@ -127,6 +168,13 @@ button { font: inherit; color: inherit; }
   font-size: 18px; font-weight: 600; pointer-events: none;
 }
 .eye-missing[hidden] { display: none; }
+.eye-note {
+  position: absolute; left: 50%; top: 48px; transform: translateX(-50%); margin: 0; padding: 8px 14px;
+  width: max-content; max-width: calc(100% - 32px); display: grid; gap: 4px; text-align: center;
+  background: var(--panel); color: var(--ink); border-radius: var(--radius);
+  font-size: 16px; font-weight: 700; pointer-events: none;
+}
+.eye-note[hidden] { display: none; }
 .stage-hint {
   position: absolute; top: 12px; left: 16px; margin: 0; font-size: 15px; opacity: 0.85; pointer-events: none;
 }

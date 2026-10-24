@@ -4,11 +4,23 @@ import { escapeHtml } from './ui/glossary.js';
 import { EYE_ICONS } from './ui/eyeIcons.js';
 import { EyeStage } from './eye3d/eyeStage.js';
 import { buildCameraEye } from './eye3d/cameraEye.js';
-import { createSettings, rangeFor } from './ui/settingsPanel.js';
+import { createSettings, rangeFor, eyeConfig, shows } from './ui/settingsPanel.js';
 import { installTips } from './ui/tips.js';
 import { createSight } from './ui/sightPanel.js';
+import { createSpectrumBar } from './ui/spectrumBar.js';
+import { peaksForCount, dragRange } from './model/spectrum.js';
 
-const BUILT_EYES = new Set(['human']); // the other seven arrive in build step 5
+// 3D models that exist so far, by type `model`. The other types arrive one build step at a time.
+const MODELS = { camera: buildCameraEye };
+const CUSTOM = 'custom';
+const BIG_EYE_MM = 30;
+
+// Short notes over the 3D eye, shown while their setting is on.
+const EYE_NOTES = [
+  { when: s => s.amblyopia === 'on', text: 'The eye is healthy. The brain gives its signal less weight.' },
+  { when: s => s.eyeSizeMm >= BIG_EYE_MM, text: 'Bigger eye, more light: but it takes up more of the head and costs more energy.' },
+  { when: s => s.eyeShape === 'tube', text: 'Can’t move in its socket: the animal turns its head instead.' },
+];
 
 const $ = sel => document.querySelector(sel);
 
@@ -16,25 +28,57 @@ async function main() {
   const res = await fetch('data/eyes.json');
   if (!res.ok) throw new Error(`Could not load data/eyes.json (${res.status})`);
   const data = await res.json();
-  const eyeById = Object.fromEntries(data.eyes.map(e => [e.id, e]));
+  const typeById = Object.fromEntries(data.types.map(t => [t.id, t]));
+  const exampleById = Object.fromEntries(data.examples.map(e => [e.id, e]));
+  const settingById = Object.fromEntries(data.settings.map(s => [s.id, s]));
 
-  const defaultsFor = id => ({ ...(eyeById[id].defaults ?? {}) });
+  const defaultsFor = id => ({ ...exampleById[id].defaults });
+  const configFor = s => eyeConfig(typeById[s.typeId], exampleById[s.exampleId]);
+  const startType = typeById[data.defaultType];
   const store = createStore({
-    eyeId: 'human', settings: defaultsFor('human'), cut: 0, labels: true,
-    sceneId: 'garden', light: 1, ownImage: null,
+    typeId: startType.id, exampleId: startType.defaultExample, settings: defaultsFor(startType.defaultExample),
+    cut: 0, labels: true, sceneId: 'garden', light: 1, ownImage: null, spectrumNote: null,
   });
   const stage = new EyeStage($('#eyeView'), data.parts, $('#tooltip'));
 
   installTips($('#tooltip'));
 
-  const pupilSetting = data.settings.find(s => s.id === 'pupilMm');
-  const settingsPanel = createSettings($('#settings'), data, (key, value) => store.set(s => {
+  const pupilSetting = settingById.pupilMm;
+  const changeSetting = (key, value) => store.set(s => {
     const settings = { ...s.settings, [key]: value };
     // A smaller eye can't keep a pupil wider than it allows.
-    const [, maxPupil] = rangeFor(pupilSetting, eyeById[s.eyeId], settings);
+    const [, maxPupil] = rangeFor(pupilSetting, configFor(s), settings);
     if (settings.pupilMm > maxPupil) settings.pupilMm = maxPupil;
-    return { settings };
-  }));
+    // The color buttons and the spectrum bar agree: a new number of sensors gets new peaks.
+    // The example's own number brings back its real peaks and lens.
+    if (key === 'colors') {
+      const own = exampleById[s.exampleId].defaults;
+      settings.peaks = peaksForCount(Number(value), s.settings.peaks, own.peaks);
+      if (own.peaks?.length === Number(value)) settings.uvLens = own.uvLens;
+    }
+    return { settings, spectrumNote: null };
+  });
+  const settingsPanel = createSettings($('#settings'), data, changeSetting);
+
+  /** "Custom" while any setting on screen, or the spectrum, differs from the example's own values. */
+  const isCustom = s => {
+    const example = exampleById[s.exampleId];
+    return configFor(s).settings.some(id =>
+      shows(settingById[id], s.settings) && s.settings[id] !== example.defaults[id]) ||
+      String(s.settings.peaks) !== String(example.defaults.peaks) || s.settings.uvLens !== example.defaults.uvLens;
+  };
+
+  const colorsLocked = s => configFor(s).allowed.colors?.length === 1;
+  const spectrum = createSpectrumBar($('#spectrum'), {
+    onDrag: (end, nm, start) => store.set(s => {
+      const { peaks, uvLens, note } = dragRange(end, nm, start);
+      const colors = String(peaks.length);
+      // A count with no button for this eye isn't allowed.
+      const allowed = configFor(s).allowed.colors;
+      if (allowed && !allowed.includes(colors)) return {};
+      return { settings: { ...s.settings, peaks, uvLens, colors }, spectrumNote: note };
+    }),
+  });
 
   const sight = createSight($('#sight'), {
     parts: data.parts,
@@ -42,43 +86,72 @@ async function main() {
     onLight: light => store.set({ light }),
     onImage: ownImage => store.set({ ownImage, sceneId: 'own' }),
   });
+  const sightSettings = createSettings($('#sight .sight-settings'), data, changeSetting, 'sight');
 
   const cutSlider = $('#cutSlider');
   cutSlider.addEventListener('input', () => store.set({ cut: Number(cutSlider.value) / 100 }));
   $('#labelsToggle').addEventListener('click', () => store.set(s => ({ labels: !s.labels })));
 
   const buttons = $('#eyeButtons');
-  buttons.innerHTML = data.eyes.map(e => `
-    <button type="button" class="eye-button" data-eye="${e.id}" aria-pressed="false" data-tip="${escapeHtml(e.hint)}">
-      ${EYE_ICONS[e.id] ?? ''}<span>${escapeHtml(e.label)}</span>
+  buttons.innerHTML = data.types.map(t => `
+    <button type="button" class="eye-button" data-type="${t.id}" aria-pressed="false" data-tip="${escapeHtml(t.hint)}">
+      ${EYE_ICONS[t.id] ?? ''}<span>${escapeHtml(t.label)}</span>
     </button>`).join('');
   buttons.addEventListener('click', e => {
-    const btn = e.target.closest('[data-eye]');
-    if (btn) store.set({ eyeId: btn.dataset.eye, settings: defaultsFor(btn.dataset.eye) });
+    const btn = e.target.closest('[data-type]');
+    if (!btn) return;
+    const exampleId = typeById[btn.dataset.type].defaultExample;
+    store.set({ typeId: btn.dataset.type, exampleId, settings: defaultsFor(exampleId), spectrumNote: null });
   });
-  $('#resetButton').addEventListener('click', () => store.set(s => ({ settings: defaultsFor(s.eyeId), sceneId: 'garden', light: 1 })));
+
+  const exampleSelect = $('#exampleSelect');
+  exampleSelect.addEventListener('change', () => {
+    const exampleId = exampleSelect.value;
+    if (exampleId !== CUSTOM) store.set({ exampleId, settings: defaultsFor(exampleId), spectrumNote: null });
+  });
+
+  $('#resetButton').addEventListener('click', () => store.set(s => ({ settings: defaultsFor(s.exampleId), sceneId: 'garden', light: 1, spectrumNote: null })));
 
   const render = (s, prev) => {
-    for (const btn of buttons.querySelectorAll('[data-eye]')) {
-      btn.setAttribute('aria-pressed', String(btn.dataset.eye === s.eyeId));
+    for (const btn of buttons.querySelectorAll('[data-type]')) {
+      btn.setAttribute('aria-pressed', String(btn.dataset.type === s.typeId));
     }
-    const eye = eyeById[s.eyeId];
-    $('#resetButton').dataset.tip = `Put the ${eye.label.toLowerCase()} eye's settings, the scene and the light back to the start.`;
+    const type = typeById[s.typeId];
+    const example = exampleById[s.exampleId];
+    const custom = isCustom(s);
+    if (!prev || s.typeId !== prev.typeId) {
+      exampleSelect.innerHTML = data.examples.filter(e => e.type === type.id)
+        .map(e => `<option value="${e.id}">${escapeHtml(e.label)}</option>`).join('') +
+        `<option value="${CUSTOM}" disabled>Custom</option>`;
+    }
+    exampleSelect.querySelector(`[value="${CUSTOM}"]`).hidden = !custom;
+    exampleSelect.value = custom ? CUSTOM : example.id;
+    if (example.tip) exampleSelect.dataset.tip = example.tip;
+    else delete exampleSelect.dataset.tip;
+    $('#resetButton').dataset.tip = `Put the ${example.label.toLowerCase()} settings, the flower garden and daylight back.`;
 
-    if (!prev || s.eyeId !== prev.eyeId || s.settings !== prev.settings) {
-      const built = BUILT_EYES.has(eye.id);
-      $('#eyeMissing').hidden = built;
-      $('#eyeMissing').textContent = built ? '' : `The ${eye.label.toLowerCase()} eye arrives in step 5`;
-      if (built) {
-        stage.setEye(buildCameraEye({ ...s.settings, irisColor: eye.look?.iris }));
-        settingsPanel.update(eye, s.settings);
+    const model = MODELS[type.model];
+    if (!prev || s.typeId !== prev.typeId || s.exampleId !== prev.exampleId || s.settings !== prev.settings) {
+      $('#eyeMissing').hidden = !!model;
+      $('#eyeMissing').textContent = model ? '' : `The ${type.label.toLowerCase()} arrives in a later step`;
+      if (model) {
+        stage.setEye(model({ ...s.settings, irisColor: example.look?.iris }));
+        settingsPanel.update(configFor(s), s.settings);
+        sightSettings.update(configFor(s), s.settings);
       } else {
-        settingsPanel.clear('Arrives in step 5');
+        settingsPanel.clear('Arrives in a later step');
+        sightSettings.clear('');
       }
-      $('#eyeView').hidden = !built;
+      $('#eyeView').hidden = !model;
+      const notes = model ? EYE_NOTES.filter(n => n.when(s.settings)).map(n => n.text) : [];
+      $('#eyeNote').hidden = !notes.length;
+      $('#eyeNote').innerHTML = notes.map(t => `<span>${escapeHtml(t)}</span>`).join('');
     }
-    if (!prev || ['eyeId', 'settings', 'sceneId', 'light', 'ownImage'].some(k => s[k] !== prev[k])) {
-      sight.update(s, BUILT_EYES.has(eye.id), eye.label);
+    if (!prev || s.settings !== prev.settings || s.exampleId !== prev.exampleId || s.typeId !== prev.typeId || s.spectrumNote !== prev.spectrumNote) {
+      spectrum.update(s.settings, { shown: !!model, locked: colorsLocked(s), lensTip: example.lensTip, note: s.spectrumNote });
+    }
+    if (!prev || ['typeId', 'exampleId', 'settings', 'sceneId', 'light', 'ownImage'].some(k => s[k] !== prev[k])) {
+      sight.update(s, !!model, type.label);
     }
     stage.setCut(s.cut);
     stage.setLabels(s.labels);

@@ -1,4 +1,5 @@
-// The right panel, "How it sees": scene buttons, the scene as the current eye sees it, and the Light slider.
+// The right panel, "How it sees": scene buttons, the scene as the current eye sees it, the Light slider,
+// and below it the eye's own settings that belong with the scene (Focus), filled in by main.js.
 import { escapeHtml } from './glossary.js';
 import { SCENES, imageScene, drawPlain } from '../scenes/scenes.js';
 import { SightRenderer, sightParams, VIEW_W, VIEW_H, BLIND_SPOT } from '../sight/sightPipeline.js';
@@ -8,7 +9,7 @@ const THUMB_H = 80;
 
 const LIGHT_TIP = 'How much light there is, from a sunny day to a dark night.';
 const MADE_UP_NOTE = 'Screens can’t show the extra colors.';
-const MADE_UP_TIP = 'Every color is shifted to make room for the extra ones. They show which things this eye can tell apart, not the real colors.';
+const MADE_UP_TIP = 'Made-up colors: every color is shifted to make room for the extra ones. They show which things this eye can tell apart, not the real colors.';
 
 const lightText = v => (v >= 0.8 ? 'Day' : v >= 0.55 ? 'Dim' : v >= 0.3 ? 'Dusk' : 'Night');
 
@@ -28,18 +29,21 @@ export function createSight(root, { parts, onScene, onLight, onImage }) {
     <div class="sight-view">
       <canvas width="${VIEW_W}" height="${VIEW_H}" aria-label="The scene as this eye sees it"></canvas>
       <span class="sight-tag sight-tag--blind" tabindex="0" data-tip="${escapeHtml(parts.blindSpot.tip)}">blind spot</span>
-      <span class="sight-tag sight-tag--made-up" tabindex="0" data-tip="${escapeHtml(MADE_UP_TIP)}">Made-up colors</span>
+      <span class="sight-tag sight-tag--made-up" tabindex="0" data-tip="${escapeHtml(MADE_UP_TIP)}">False color</span>
       <p class="sight-missing" hidden></p>
     </div>
     <p class="sight-note" hidden></p>
-    <section class="setting">
-      <div class="setting-head">
-        <span class="setting-name" tabindex="0" data-tip="${escapeHtml(LIGHT_TIP)}">Light</span>
-        <output class="setting-value"></output>
-      </div>
-      <input type="range" min="0" max="1" step="0.01" aria-label="Light">
-      <div class="setting-ends" aria-hidden="true"><span>Night</span><span>Day</span></div>
-    </section>`;
+    <div class="sight-controls">
+      <section class="setting">
+        <div class="setting-head">
+          <span class="setting-name" tabindex="0" data-tip="${escapeHtml(LIGHT_TIP)}">Light</span>
+          <output class="setting-value"></output>
+        </div>
+        <input type="range" min="0" max="1" step="0.01" aria-label="Light">
+        <div class="setting-ends" aria-hidden="true"><span>Night</span><span>Day</span></div>
+      </section>
+      <div class="sight-settings"></div>
+    </div>`;
 
   for (const s of SCENES) drawPlain(root.querySelector(`[data-scene="${s.id}"] canvas`), s);
   const ownButton = root.querySelector('[data-scene="own"]');
@@ -102,7 +106,7 @@ export function createSight(root, { parts, onScene, onLight, onImage }) {
       root.querySelector('.setting-value').textContent = lightText(s.light);
 
       missing.hidden = built;
-      missing.textContent = built ? '' : `The ${eyeLabel.toLowerCase()} eye’s view arrives in step 5`;
+      missing.textContent = built ? '' : `The ${eyeLabel.toLowerCase()}’s view arrives in a later step`;
       view.style.visibility = built ? '' : 'hidden';
       if (!built) {
         blindTag.hidden = madeUpTag.hidden = note.hidden = true;
