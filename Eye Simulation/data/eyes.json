@@ -1,0 +1,78 @@
+{
+  "parts": {
+    "cornea": { "label": "cornea", "tip": "The clear front window. It bends light even more than the lens does.", "seeThrough": true },
+    "iris": { "label": "iris", "tip": "The colored ring. Its muscles make the pupil bigger or smaller." },
+    "pupil": { "label": "pupil", "tip": "The hole in the iris that lets light in." },
+    "lens": { "label": "lens", "tip": "A clear, bendy disc that fine-tunes the focus for near or far things." },
+    "focusMuscle": { "label": "ciliary muscle", "tip": "The focus muscle: a ring that changes the lens's shape to focus near or far." },
+    "sclera": { "label": "sclera", "tip": "The white of the eye: a tough outer wall that keeps the eye in shape." },
+    "choroid": { "label": "choroid", "tip": "A dark layer full of blood vessels that feeds the retina." },
+    "vitreous": { "label": "vitreous humor", "tip": "Clear jelly that fills most of the eye and keeps it round. Light passes straight through it.", "seeThrough": true },
+    "retina": { "label": "retina", "tip": "The light-sensing layer at the back, like the sensor in a camera." },
+    "blindSpot": { "label": "optic disc", "tip": "Where the optic nerve leaves the eye. It has no light sensors, so it makes a blind spot." },
+    "fovea": { "label": "fovea", "tip": "The sharpest spot: a tiny pit packed with light sensors that sees the finest detail." },
+    "opticNerve": { "label": "optic nerve", "tip": "The cable that carries the picture to the brain." },
+    "wiring": { "label": "nerve fiber layer", "tip": "The nerve wiring: fibers that collect the signals from the light sensors.", "seeThrough": true },
+    "tapetum": { "label": "tapetum lucidum", "tip": "The night reflector: a shiny layer that bounces light back through the retina for a second chance. It makes eyes glow in the dark." }
+  },
+  "settings": [
+    { "id": "eyeSizeMm", "label": "Eye size", "type": "range", "min": 10, "max": 40, "step": 1, "unit": "mm",
+      "tip": "Bigger eyes catch more light and see finer detail, but cost more to grow and carry." },
+    { "id": "retina", "label": "Retina facing", "type": "choice", "columns": 1,
+      "tip": "Which way the light sensors point.",
+      "options": [
+        { "id": "away", "label": "Away from light", "tip": "The wiring sits in front of the sensors and leaves through a hole: a blind spot." },
+        { "id": "toward", "label": "Toward light", "tip": "The wiring sits behind the sensors, so there is no blind spot." }
+      ] },
+    { "id": "focus", "label": "Focus", "type": "range", "min": 0, "max": 1, "step": 0.01, "ends": ["Near", "Far"],
+      "tip": "The distance the eye is focused on. Things nearer or farther look blurry." },
+    { "id": "pupilShape", "label": "Pupil shape", "type": "choice", "columns": 1,
+      "tip": "The shape of the opening that lets light in.",
+      "options": [
+        { "id": "round", "label": "Round", "tip": "The same in every direction." },
+        { "id": "slit", "label": "Slit", "tip": "Closes very tightly in bright light. Common in hunters that are active day and night." },
+        { "id": "horizontal", "label": "Horizontal", "tip": "Sees a wide strip of the ground or sea." }
+      ] },
+    { "id": "pupilMm", "label": "Pupil size", "type": "range", "min": 1, "max": 8, "maxPerEyeMm": 0.35, "step": 0.5, "unit": "mm",
+      "tip": "A bigger opening lets in more light, but only things at the focus distance stay sharp." },
+    { "id": "tapetum", "label": "Tapetum lucidum (night reflector)", "type": "choice",
+      "tip": "A shiny layer that bounces light back through the retina. Brighter at night, but more glare.",
+      "options": [
+        { "id": "off", "label": "Off", "tip": "No reflector." },
+        { "id": "on", "label": "On", "tip": "Light gets a second pass, and the eyes glow in the dark." }
+      ] },
+    { "id": "colors", "label": "Color vision", "type": "choice", "columns": 2,
+      "tip": "How many kinds of color sensors the eye has. More kinds tell more colors apart.",
+      "options": [
+        { "id": "1", "label": "1 color", "tip": "One kind of color sensor: shades of one color only." },
+        { "id": "2", "label": "2 colors", "tip": "Two kinds: like most dogs and cats." },
+        { "id": "3", "label": "3 colors", "tip": "Three kinds: like most people." },
+        { "id": "4", "label": "4 colors", "tip": "Four kinds: like many birds, including ultraviolet." },
+        { "id": "5", "label": "5 colors", "tip": "Five kinds: more than any screen can show." }
+      ] },
+    { "id": "colorblind", "label": "Red and green", "type": "choice", "columns": 1, "showWhen": { "colors": "3" },
+      "tip": "Some people's red and green sensors are too alike, so reds and greens get confused.",
+      "options": [
+        { "id": "normal", "label": "Normal", "tip": "Reds and greens look different." },
+        { "id": "redGreen", "label": "Red-green colorblind", "tip": "Reds and greens look more alike." }
+      ] },
+    { "id": "colorblindStrength", "label": "How strong", "type": "range", "min": 0, "max": 1, "step": 0.05, "ends": ["Mild", "Strong"],
+      "showWhen": { "colors": "3", "colorblind": "redGreen" },
+      "tip": "From slightly mixed-up reds and greens to not telling them apart at all." }
+  ],
+  "eyes": [
+    { "id": "human", "label": "Human", "shape": "camera", "hint": "One lens focuses light onto the back of the eye, like a camera.",
+      "settings": ["eyeSizeMm", "retina", "focus", "pupilShape", "pupilMm", "tapetum", "colors", "colorblind", "colorblindStrength"],
+      "ranges": { "eyeSizeMm": [12, 40] },
+      "defaults": { "eyeSizeMm": 24, "retina": "away", "focus": 1, "pupilShape": "round", "pupilMm": 4, "tapetum": "off",
+        "colors": "3", "colorblind": "normal", "colorblindStrength": 0.5 },
+      "look": { "iris": "#6b4a2e" } },
+    { "id": "octopus", "label": "Octopus", "shape": "camera", "hint": "A camera eye like ours, but wired the other way round, so it has no blind spot." },
+    { "id": "jumpingSpider", "label": "Jumping spider", "shape": "tube", "hint": "A long tube with a lens at each end, like a tiny telescope." },
+    { "id": "wasp", "label": "Wasp", "shape": "compound", "hint": "A dome of thousands of tiny eyes, each seeing one dot of the picture." },
+    { "id": "scallop", "label": "Scallop", "shape": "mirror", "hint": "A curved mirror at the back bounces light forward onto the seeing layer." },
+    { "id": "cat", "label": "Cat", "shape": "camera", "hint": "A camera eye with a slit pupil and a shiny layer that helps at night." },
+    { "id": "eagle", "label": "Eagle", "shape": "camera", "hint": "A large camera eye with two extra-sharp spots for spotting prey far away." },
+    { "id": "whale", "label": "Whale", "shape": "camera", "hint": "A camera eye built for dim, deep water, with a round lens." }
+  ]
+}

@@ -1,0 +1,170 @@
+/* Eye Simulation. PC only (1366×768 to 1920×1080). Dark stage for the eye, light panels around it.
+   Selected states always add a thick outline and a check mark, never color alone. */
+
+:root {
+  --page: #e9e7e1;
+  --panel: #ffffff;
+  --ink: #15171c;
+  --muted: #4a4f5a;
+  --line: #c9c6be;
+  --accent: #1f56a8;
+  --stage: #0d0f14;
+  --stage-ink: #e8e6e0;
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --radius: 10px;
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  min-width: 1280px;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  background: var(--page);
+  color: var(--ink);
+  font: 16px/1.4 var(--font);
+}
+h2 { margin: 0 0 12px; font-size: 18px; }
+button { font: inherit; color: inherit; }
+:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.placeholder { margin: 0; color: var(--muted); font-size: 15px; }
+
+/* Top: eye type buttons */
+.eye-bar {
+  display: flex; align-items: center; gap: 16px; padding: 12px 16px;
+  background: var(--panel); border-bottom: 1px solid var(--line);
+}
+.eye-buttons { display: flex; gap: 8px; flex: 1; min-width: 0; }
+.eye-button {
+  position: relative; flex: 0 1 140px; min-width: 118px; height: 100px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+  background: var(--panel); border: 2px solid var(--line); border-radius: var(--radius);
+  font-size: 15px; font-weight: 600; cursor: pointer;
+}
+.eye-button:hover { border-color: var(--muted); }
+.eye-button[aria-pressed="true"] { border: 4px solid var(--ink); font-weight: 800; }
+.eye-button[aria-pressed="true"]::after {
+  content: "✓"; position: absolute; top: 4px; right: 8px; font-size: 18px; font-weight: 800;
+}
+.reset-button {
+  height: 48px; padding: 0 18px; flex: none;
+  background: var(--panel); border: 2px solid var(--ink); border-radius: var(--radius);
+  font-size: 16px; font-weight: 700; cursor: pointer;
+}
+
+/* Settings panel */
+.settings { display: grid; gap: 14px; }
+.setting[hidden] { display: none; }
+.setting-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 6px; }
+.setting-name {
+  font-size: 16px; font-weight: 700; cursor: help;
+  text-decoration: underline dotted 1.5px; text-underline-offset: 3px;
+}
+.setting-value { font-size: 16px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.setting input[type="range"] { width: 100%; height: 28px; margin: 0; accent-color: var(--accent); cursor: pointer; }
+.setting-ends { display: flex; justify-content: space-between; font-size: 15px; color: var(--muted); }
+.choices { display: grid; grid-template-columns: repeat(var(--cols, 2), minmax(0, 1fr)); gap: 6px; }
+.choice {
+  position: relative; min-height: 44px; padding: 6px 8px; line-height: 1.2;
+  background: var(--panel); border: 2px solid var(--line); border-radius: 8px;
+  font-size: 15px; font-weight: 600; cursor: pointer;
+}
+.choice:hover { border-color: var(--muted); }
+.choice[aria-pressed="true"] { border: 4px solid var(--ink); padding: 4px 6px; font-weight: 800; }
+.choice[aria-pressed="true"]::before { content: "✓ "; }
+
+/* How it sees: scene buttons, the view, the Light slider */
+.sight { display: grid; gap: 10px; }
+.scene-picker { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.scene-button {
+  display: flex; flex-direction: column; align-items: stretch; gap: 3px; min-height: 44px; padding: 4px;
+  background: var(--panel); border: 2px solid var(--line); border-radius: 8px;
+  font-size: 15px; font-weight: 600; line-height: 1.15; cursor: pointer;
+}
+.scene-button:hover { border-color: var(--muted); }
+.scene-button canvas { display: block; width: 100%; aspect-ratio: 16 / 10; border-radius: 4px; }
+/* The own-image button fills the last two slots, so its longer name fits on one line. */
+.scene-button--own { grid-column: span 2; }
+.scene-button--own canvas { aspect-ratio: 32 / 10; }
+.scene-button[aria-pressed="true"] { border: 4px solid var(--ink); padding: 2px; font-weight: 800; }
+.scene-button[aria-pressed="true"] span::before { content: "✓ "; }
+.sight-view { position: relative; background: var(--stage); border-radius: var(--radius); overflow: hidden; }
+.sight-view canvas { display: block; width: 100%; aspect-ratio: 16 / 10; }
+.sight-tag {
+  position: absolute; padding: 1px 8px; font-size: 15px; font-weight: 600; line-height: 22px; white-space: nowrap;
+  background: rgb(255 255 255 / 0.94); color: var(--ink); border-radius: 4px; cursor: help;
+}
+.sight-tag[hidden] { display: none; }
+.sight-tag--blind { transform: translateX(-50%); }
+.sight-tag--made-up { top: 8px; left: 8px; border: 2px dashed var(--ink); }
+.sight-missing {
+  position: absolute; inset: 0; display: grid; place-items: center; margin: 0; padding: 16px; text-align: center;
+  color: var(--stage-ink); font-size: 16px; font-weight: 600;
+}
+.sight-missing[hidden] { display: none; }
+.sight-note { margin: -4px 0 0; font-size: 15px; color: var(--ink); }
+.sight-note[hidden] { display: none; }
+
+/* Main: settings | 3D eye | how it sees */
+.layout {
+  display: grid; min-height: 0; gap: 12px; padding: 12px 16px 16px;
+  grid-template-columns: clamp(280px, 18vw, 340px) minmax(0, 1fr) clamp(380px, 27vw, 540px);
+}
+.panel {
+  min-height: 0; overflow-y: auto; padding: 16px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+}
+.eye-stage {
+  position: relative; min-height: 0; overflow: hidden;
+  background: var(--stage); color: var(--stage-ink); border-radius: var(--radius);
+}
+.eye-view { position: absolute; inset: 0; }
+.eye-view canvas { display: block; cursor: grab; }
+.eye-view canvas:active { cursor: grabbing; }
+.eye-missing {
+  position: absolute; inset: 0; display: grid; place-items: center; margin: 0;
+  font-size: 18px; font-weight: 600; pointer-events: none;
+}
+.eye-missing[hidden] { display: none; }
+.stage-hint {
+  position: absolute; top: 12px; left: 16px; margin: 0; font-size: 15px; opacity: 0.85; pointer-events: none;
+}
+
+/* 3D labels: a dot on the part, the name beside it */
+.eye-labels { position: absolute; inset: 0; pointer-events: none; }
+.eye-label { width: 0; height: 0; }
+.eye-label::before {
+  content: ""; position: absolute; left: -4px; top: -4px; width: 8px; height: 8px;
+  border-radius: 50%; background: #fff; border: 2px solid var(--stage);
+}
+.eye-label-text {
+  position: absolute; top: -14px; white-space: nowrap; pointer-events: auto; cursor: help;
+  padding: 2px 8px; font-size: 15px; font-weight: 600; line-height: 22px;
+  background: rgb(255 255 255 / 0.94); color: var(--ink); border-radius: 4px;
+}
+.eye-label--right .eye-label-text { left: 10px; }
+.eye-label--left .eye-label-text { right: 10px; }
+
+/* Cut open + labels, on a light bar at the bottom of the stage */
+.stage-tools {
+  position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 16px; padding: 8px 14px;
+  background: var(--panel); color: var(--ink); border-radius: var(--radius); box-shadow: 0 4px 16px rgb(0 0 0 / 0.35);
+}
+.cut-control { display: flex; align-items: center; gap: 10px; font-size: 16px; font-weight: 600; white-space: nowrap; }
+.cut-control input { width: 220px; height: 28px; accent-color: var(--accent); }
+.cut-control output { min-width: 3.2em; font-variant-numeric: tabular-nums; }
+.toggle-button {
+  height: 44px; padding: 0 16px; min-width: 110px;
+  background: var(--panel); border: 2px solid var(--line); border-radius: var(--radius);
+  font-size: 16px; font-weight: 600; cursor: pointer;
+}
+.toggle-button[aria-pressed="true"] { border: 4px solid var(--ink); font-weight: 800; }
+.toggle-button[aria-pressed="true"]::before { content: "✓ "; }
+.toggle-button[aria-pressed="false"]::before { content: "○ "; }
+
+.tooltip {
+  position: fixed; pointer-events: none; z-index: 10; max-width: 300px; padding: 8px 12px; font-size: 15px;
+  background: var(--ink); color: var(--panel); border-radius: 6px; box-shadow: 0 4px 16px rgb(0 0 0 / 0.3);
+}

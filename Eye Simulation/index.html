@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Eye Simulation</title>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <header class="eye-bar">
+    <nav id="eyeButtons" class="eye-buttons" aria-label="Eye type"></nav>
+    <button type="button" id="resetButton" class="reset-button">↺ Reset</button>
+  </header>
+
+  <main class="layout">
+    <aside class="panel settings-panel" aria-labelledby="settings-h">
+      <h2 id="settings-h">Settings</h2>
+      <div id="settings" class="settings"></div>
+    </aside>
+
+    <section class="eye-stage" aria-label="3D eye">
+      <div id="eyeView" class="eye-view"></div>
+      <p id="eyeMissing" class="eye-missing" hidden></p>
+      <p class="stage-hint">Drag to rotate · Scroll to zoom · Hover a part to learn what it does</p>
+      <div class="stage-tools">
+        <label class="cut-control">
+          <span>Cut open</span>
+          <input type="range" id="cutSlider" min="0" max="100" step="1" value="0">
+          <output id="cutValue" for="cutSlider">0%</output>
+        </label>
+        <button type="button" id="labelsToggle" class="toggle-button" aria-pressed="true">Labels</button>
+      </div>
+    </section>
+
+    <aside class="panel sight-panel" aria-labelledby="sight-h">
+      <h2 id="sight-h">How it sees</h2>
+      <div id="sight" class="sight"></div>
+    </aside>
+  </main>
+
+  <div id="tooltip" class="tooltip" role="tooltip" hidden></div>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
