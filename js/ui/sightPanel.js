@@ -2,7 +2,7 @@
 // and below it the eye's own settings that belong with the scene (Focus), filled in by main.js.
 import { escapeHtml } from './glossary.js';
 import { SCENES, imageScene, drawPlain } from '../scenes/scenes.js';
-import { SightRenderer, sightParams, VIEW_W, VIEW_H, BLIND_SPOT } from '../sight/sightPipeline.js';
+import { SightRenderer, sightParams, chartBlur, VIEW_W, VIEW_H, BLIND_SPOT } from '../sight/sightPipeline.js';
 
 const THUMB_W = 128;
 const THUMB_H = 80;
@@ -15,9 +15,25 @@ const IR_NOISE_NOTE = 'Body heat sets off red-tuned sensors by mistake, adding n
 const IR_BLUR_NOTE = 'Longer light blurs more. A bigger pupil helps.';
 const PHOTO_NOTE = 'Photos only record visible light, so this one has no UV or infrared to show.';
 
+const SHARPNESS_TIP = 'Eye chart score from 20 feet (6 m). 20/40 means this eye must be at 20 feet to read what a typical eye reads from 40.';
+const DETAIL_TIP = 'The finest gap this eye can make out. A typical human eye manages about 1 arcminute.';
+
 const lightText = v => (v >= 0.8 ? 'Day' : v >= 0.55 ? 'Dim' : v >= 0.3 ? 'Dusk' : 'Night');
 
-export function createSight(root, { parts, onScene, onLight, onImage }) {
+/** "20/40" and "2 arcminutes (1/30 of a degree)" for a smallest detail of `arcmin`. */
+function sharpnessText(arcmin) {
+  const score = 20 * arcmin;
+  const step = score < 100 ? 5 : 10;
+  const am = arcmin < 10 ? Math.round(arcmin * 10) / 10 : Math.round(arcmin);
+  return {
+    score: `20/${Math.max(step, Math.round(score / step) * step)}`,
+    detail: `${am} arcminute${am === 1 ? '' : 's'} (1/${Math.max(1, Math.round(60 / am))} of a degree)`,
+  };
+}
+
+/** `reference` is a typical human eye's settings: the 20/20 that every eye is measured against. */
+export function createSight(root, { parts, reference, onScene, onLight, onImage }) {
+  const referenceBlur = chartBlur(reference, 1);
   root.innerHTML = `
     <div class="scene-picker" role="group" aria-label="Scene">
       ${SCENES.map(s => `
@@ -47,7 +63,17 @@ export function createSight(root, { parts, onScene, onLight, onImage }) {
         <div class="setting-ends" aria-hidden="true"><span>Night</span><span>Day</span></div>
       </section>
       <div class="sight-settings"></div>
-    </div>`;
+    </div>
+    <dl class="sharpness">
+      <div>
+        <dt><span class="setting-name" tabindex="0" data-tip="${escapeHtml(SHARPNESS_TIP)}">Sharpness</span></dt>
+        <dd class="setting-value" data-sharpness="score"></dd>
+      </div>
+      <div>
+        <dt><span class="setting-name" tabindex="0" data-tip="${escapeHtml(DETAIL_TIP)}">Smallest detail</span></dt>
+        <dd class="setting-value" data-sharpness="detail"></dd>
+      </div>
+    </dl>`;
 
   for (const s of SCENES) drawPlain(root.querySelector(`[data-scene="${s.id}"] canvas`), s);
   const ownButton = root.querySelector('[data-scene="own"]');
@@ -60,6 +86,7 @@ export function createSight(root, { parts, onScene, onLight, onImage }) {
   const madeUpTag = root.querySelector('.sight-tag--made-up');
   const missing = root.querySelector('.sight-missing');
   const viewNotes = root.querySelector('.sight-notes');
+  const sharpness = root.querySelector('.sharpness');
   blindTag.style.left = `${BLIND_SPOT.x * 100}%`;
   blindTag.style.top = `${(BLIND_SPOT.y + BLIND_SPOT.ry) * 100 + 2}%`;
 
@@ -112,12 +139,15 @@ export function createSight(root, { parts, onScene, onLight, onImage }) {
       missing.hidden = built;
       missing.textContent = built ? '' : `The ${eyeLabel.toLowerCase()}’s view arrives in a later step`;
       view.style.visibility = built ? '' : 'hidden';
+      sharpness.hidden = !built;
       if (!built) {
         blindTag.hidden = madeUpTag.hidden = true;
         viewNotes.innerHTML = '';
         return;
       }
       const p = sightParams(s.settings, s.light);
+      const text = sharpnessText(chartBlur(s.settings, s.light) / referenceBlur);
+      for (const dd of sharpness.querySelectorAll('[data-sharpness]')) dd.textContent = text[dd.dataset.sharpness];
       blindTag.hidden = !p.blindSpot;
       const shift = p.color?.kind === 'shift' ? p.color.channels : 0;
       // UV or infrared reaching the eye, in a scene that has them (photos don't; underwater has no infrared).

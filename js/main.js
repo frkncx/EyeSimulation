@@ -100,6 +100,7 @@ async function main() {
 
   const sight = createSight($('#sight'), {
     parts: data.parts,
+    reference: exampleById.human.defaults,
     onScene: sceneId => store.set({ sceneId }),
     onLight: light => store.set({ light }),
     onImage: ownImage => store.set({ ownImage, sceneId: 'own' }),

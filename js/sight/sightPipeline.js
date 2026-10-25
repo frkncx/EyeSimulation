@@ -408,6 +408,21 @@ export function blurFor(distanceM, p) {
   return [axis(p.pupilW, p.cylinderD), axis(p.pupilH, 0)];
 }
 
+const CHART_M = 6; // an eye chart is read from 20 feet, about 6 m
+
+/**
+ * How blurry an eye chart 6 m away looks, with the eye focused on it as well as it can
+ * (nearsightedness may stop it). The same blur the view uses; compare it with a typical human eye's.
+ */
+export function chartBlur(settings, light) {
+  const p = sightParams(settings, light);
+  const errorD = (settings.refraction ?? 0) * REFRACTION_MAX_D;
+  const nearestD = vergence(focusDistanceM(0));
+  const d = Math.min(Math.max(vergence(CHART_M), -errorD, 0), nearestD - errorD);
+  const [sx, sy] = blurFor(CHART_M, { ...p, focusM: d < 0.05 ? Infinity : 1 / d });
+  return (sx + sy) / 2;
+}
+
 /** No light sensors where the nerve leaves the eye: a gap in the picture. */
 function gap(ctx) {
   const s = BLIND_SPOT;
