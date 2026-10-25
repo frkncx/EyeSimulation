@@ -199,7 +199,8 @@ button { font: inherit; color: inherit; }
 .stage-hint { margin: 0; font-size: 15px; opacity: 0.85; }
 
 /* 3D labels: a dot on the part, the name beside it */
-.eye-labels { position: absolute; inset: 0; pointer-events: none; }
+/* z-index 0 keeps the labels' own depth order inside the view, so the hover box stays on top. */
+.eye-labels { position: absolute; inset: 0; z-index: 0; pointer-events: none; }
 .eye-label { width: 0; height: 0; }
 .eye-label::before {
   content: ""; position: absolute; left: -4px; top: -4px; width: 8px; height: 8px;

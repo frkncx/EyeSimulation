@@ -1,0 +1,36 @@
+# Uploads the web build to https://furkancx.itch.io/eye-simulation on every push to main.
+# Needs a repository secret BUTLER_API_KEY (itch.io → Settings → API keys).
+name: Upload to itch.io
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: itch
+  cancel-in-progress: true
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Only what the page needs; notes, prompts and the local server stay out.
+      - name: Collect the web files
+        run: |
+          mkdir build
+          cp -r index.html css js data build/
+
+      - name: Install butler
+        run: |
+          curl -sSfL -o butler.zip https://broth.itch.zone/butler/linux-amd64/LATEST/archive/default
+          unzip -q butler.zip -d butler
+          chmod +x butler/butler
+          ./butler/butler -V
+
+      - name: Push to itch.io
+        env:
+          BUTLER_API_KEY: ${{ secrets.BUTLER_API_KEY }}
+        run: ./butler/butler push build furkancx/eye-simulation:html5 --userversion "${GITHUB_SHA::7}"

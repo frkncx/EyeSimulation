@@ -23,7 +23,7 @@ const EYE_NOTES = [
   { when: (s, st) => st.rays.uv && bandReach(s).uv, text: 'Seeing UV: the retina is exposed to light that damages it over a lifetime.' },
 ];
 
-/** What the UV and IR rays are doing in this eye right now, for the buttons' hover text. */
+/** What the UV and IR rays are doing in this eye right now: hover text for the buttons and for the rays themselves. */
 function rayTips(s, rays) {
   const reach = bandReach(s);
   const uvNow = reach.uv ? 'UV passes the clear lens and reaches the retina, where the bluest sensor picks some of it up.'
@@ -31,9 +31,12 @@ function rayTips(s, rays) {
     : 'UV gets through to the retina, but no sensor here is tuned blue enough to catch it.';
   const irNow = reach.ir ? 'Near-infrared reaches the retina, and the red-shifted reddest sensor picks it up.'
     : 'Near-infrared reaches the retina, but no sensor here is tuned red enough to catch it.';
+  const faint = seen => (seen ? '' : ' That’s why the rays are faint.');
   return {
     uv: `${rays.uv ? 'Hide' : 'Show'} ultraviolet light rays. ${uvNow}`,
     ir: `${rays.ir ? 'Hide' : 'Show'} infrared light rays. ${irNow}`,
+    uvRay: `Ultraviolet light, just past violet. ${uvNow}${faint(reach.uv)}`,
+    irRay: `Near-infrared light, just past red. ${irNow}${faint(reach.ir)}`,
   };
 }
 
@@ -162,6 +165,8 @@ async function main() {
         // The button just clicked keeps its hover text, updated.
         if (btn.matches(':hover')) btn.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }));
       }
+      data.parts.uvLight.tip = tips.uvRay;
+      data.parts.irLight.tip = tips.irRay;
       if (model) {
         stage.setEye(model({ ...s.settings, irisColor: example.look?.iris, rays: s.rays }));
         settingsPanel.update(configFor(s), s.settings);
