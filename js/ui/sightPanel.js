@@ -10,6 +10,10 @@ const THUMB_H = 80;
 const LIGHT_TIP = 'How much light there is, from a sunny day to a dark night.';
 const MADE_UP_NOTE = 'Screens can’t show the extra colors.';
 const MADE_UP_TIP = 'Made-up colors: every color is shifted to make room for the extra ones. They show which things this eye can tell apart, not the real colors.';
+const BANDS_TIP = 'Made-up colors: this eye sees light screens can’t show, so it is painted in a stand-in color: ultraviolet as violet, infrared as red-orange.';
+const IR_NOISE_NOTE = 'Body heat sets off red-tuned sensors by mistake, adding noise.';
+const IR_BLUR_NOTE = 'Longer light blurs more. A bigger pupil helps.';
+const PHOTO_NOTE = 'Photos only record visible light, so this one has no UV or infrared to show.';
 
 const lightText = v => (v >= 0.8 ? 'Day' : v >= 0.55 ? 'Dim' : v >= 0.3 ? 'Dusk' : 'Night');
 
@@ -30,9 +34,9 @@ export function createSight(root, { parts, onScene, onLight, onImage }) {
       <canvas width="${VIEW_W}" height="${VIEW_H}" aria-label="The scene as this eye sees it"></canvas>
       <span class="sight-tag sight-tag--blind" tabindex="0" data-tip="${escapeHtml(parts.blindSpot.tip)}">blind spot</span>
       <span class="sight-tag sight-tag--made-up" tabindex="0" data-tip="${escapeHtml(MADE_UP_TIP)}">False color</span>
+      <div class="sight-notes"></div>
       <p class="sight-missing" hidden></p>
     </div>
-    <p class="sight-note" hidden></p>
     <div class="sight-controls">
       <section class="setting">
         <div class="setting-head">
@@ -54,8 +58,8 @@ export function createSight(root, { parts, onScene, onLight, onImage }) {
   const view = root.querySelector('.sight-view canvas');
   const blindTag = root.querySelector('.sight-tag--blind');
   const madeUpTag = root.querySelector('.sight-tag--made-up');
-  const note = root.querySelector('.sight-note');
   const missing = root.querySelector('.sight-missing');
+  const viewNotes = root.querySelector('.sight-notes');
   blindTag.style.left = `${BLIND_SPOT.x * 100}%`;
   blindTag.style.top = `${(BLIND_SPOT.y + BLIND_SPOT.ry) * 100 + 2}%`;
 
@@ -109,15 +113,24 @@ export function createSight(root, { parts, onScene, onLight, onImage }) {
       missing.textContent = built ? '' : `The ${eyeLabel.toLowerCase()}’s view arrives in a later step`;
       view.style.visibility = built ? '' : 'hidden';
       if (!built) {
-        blindTag.hidden = madeUpTag.hidden = note.hidden = true;
+        blindTag.hidden = madeUpTag.hidden = true;
+        viewNotes.innerHTML = '';
         return;
       }
       const p = sightParams(s.settings, s.light);
       blindTag.hidden = !p.blindSpot;
       const shift = p.color?.kind === 'shift' ? p.color.channels : 0;
-      madeUpTag.hidden = !shift;
-      note.hidden = !shift;
-      note.textContent = shift ? MADE_UP_NOTE : '';
+      // UV or infrared reaching the eye, in a scene that has them (photos don't; underwater has no infrared).
+      const photo = s.sceneId === 'own';
+      const bands = !photo && (p.uv > 0 || (p.ir > 0 && s.sceneId !== 'underwater'));
+      madeUpTag.hidden = !shift && !bands;
+      madeUpTag.dataset.tip = shift ? MADE_UP_TIP : BANDS_TIP;
+      const notes = shift ? [MADE_UP_NOTE] : [];
+      if (photo && (p.uv > 0 || p.ir > 0)) notes.push(PHOTO_NOTE);
+      // The noise comes from the eye's own warmth, so it shows in every scene; the blur only where there's infrared.
+      if (p.ir > 0) notes.push(IR_NOISE_NOTE);
+      if (p.ir > 0 && !photo && s.sceneId !== 'underwater') notes.push(IR_BLUR_NOTE);
+      viewNotes.innerHTML = notes.map(t => `<span>${escapeHtml(t)}</span>`).join('');
       current = s;
       pending ??= requestAnimationFrame(draw);
     },

@@ -3,6 +3,11 @@
 // Each scene is a few layers at different distances, far to near, so focus can blur some and not others.
 // Layers draw in a 640×400 box (the caller scales it). `glow` draws light sources (street lamps, windows):
 // they keep shining when the Light slider goes to night, while everything else darkens.
+//
+// Ultraviolet and near-infrared: the renderer works out a rough base from each layer's colors (leaves and
+// grass bright in infrared, sky and water dark; most things dark in UV, sky a little bright). A layer's
+// `uv` draws hand-painted UV patterns on top, in grey (white = reflects a lot of UV).
+// A scene can set `uvLevel` (how strong its UV is) and `noIr` (no infrared at all).
 import { seeded, ellipse } from './paint.js';
 
 export const SCENE_W = 640;
@@ -32,6 +37,49 @@ function flower(ctx, x, y, r, petal, center, petals = 8) {
   blob(ctx, x, y, r * 0.32, r * 0.32, center);
 }
 
+/**
+ * A flower's UV pattern, the "nectar guide": petal tips reflect UV, the middle soaks it up,
+ * so a UV-seeing insect sees a dark bullseye pointing to the nectar.
+ */
+function uvFlower(ctx, x, y, r, petals) {
+  flower(ctx, x, y, r, '#b4b4b4', '#080808', petals);
+  blob(ctx, x, y, r * 0.62, r * 0.62, '#181818');
+  blob(ctx, x, y, r * 0.32, r * 0.32, '#080808');
+}
+
+const WING = [[-1, -1, 1, 0.75, -0.5], [1, -1, 1, 0.75, 0.5], [-1, 0.55, 0.6, 0.45, 0.4], [1, 0.55, 0.6, 0.45, -0.4]];
+/** A butterfly seen from above, `s` across one wing. */
+function butterfly(ctx, x, y, s, wing, edge) {
+  for (const [dx, dy, rx, ry, a] of WING) {
+    ctx.fillStyle = edge;
+    ellipse(ctx, x + dx * s * 0.75, y + dy * s * 0.5, rx * s * 0.85, ry * s * 0.85, a);
+    ctx.fill();
+    ctx.fillStyle = wing;
+    ellipse(ctx, x + dx * s * 0.7, y + dy * s * 0.45, rx * s * 0.62, ry * s * 0.62, a);
+    ctx.fill();
+  }
+  blob(ctx, x, y, s * 0.12, s * 0.7, '#1d1a18');
+}
+
+/** The butterfly's UV markings: bright patches on the wings that people can't see. */
+function uvButterfly(ctx, x, y, s) {
+  butterfly(ctx, x, y, s, '#202020', '#101010');
+  for (const [dx, dy] of [[-1, -1], [1, -1]]) blob(ctx, x + dx * s * 0.72, y + dy * s * 0.5, s * 0.34, s * 0.26, '#f0f0f0');
+}
+
+// The garden's flower bed, so its colors and its UV patterns come from the same flowers.
+function flowerBed(ctx, paint) {
+  const rand = seeded(23);
+  const colors = ['#d8312c', '#f2c21b', '#e86aa8', '#f5f2ea', '#7a4fc0', '#f08a1e'];
+  for (let i = 0; i < 150; i++) {
+    const x = rand() * SCENE_W;
+    const y = 262 + rand() * 70;
+    const r = 4 + rand() * 4 + (y - 262) * 0.06;
+    paint(x, y, r, colors[Math.floor(rand() * colors.length)]);
+  }
+}
+const BUTTERFLIES = [[430, 232, 13], [205, 246, 10]];
+
 function stem(ctx, x0, y0, x1, y1, width, color = '#3f7d2c') {
   ctx.strokeStyle = color;
   ctx.lineWidth = width;
@@ -57,15 +105,15 @@ const garden = {
     } },
     { distanceM: 4, draw(ctx) {
       blob(ctx, 330, 300, 360, 46, '#6b4a2e');
-      const rand = seeded(23);
-      const colors = ['#d8312c', '#f2c21b', '#e86aa8', '#f5f2ea', '#7a4fc0', '#f08a1e'];
-      for (let i = 0; i < 150; i++) {
-        const x = rand() * SCENE_W;
-        const y = 262 + rand() * 70;
-        const r = 4 + rand() * 4 + (y - 262) * 0.06;
+      flowerBed(ctx, (x, y, r, color) => {
         stem(ctx, x, y + r * 3, x, y, 1.5);
-        flower(ctx, x, y, r, colors[Math.floor(rand() * colors.length)], '#f7d54a', 6);
-      }
+        flower(ctx, x, y, r, color, '#f7d54a', 6);
+      });
+      for (const [x, y, s] of BUTTERFLIES) butterfly(ctx, x, y, s, '#f08a1e', '#2a1a10');
+    },
+    uv(ctx) {
+      flowerBed(ctx, (x, y, r) => uvFlower(ctx, x, y, r, 6));
+      for (const [x, y, s] of BUTTERFLIES) uvButterfly(ctx, x, y, s);
     } },
     { distanceM: 0.45, draw(ctx) {
       ctx.fillStyle = '#3f8a2f';
@@ -77,6 +125,10 @@ const garden = {
       flower(ctx, 120, 320, 70, '#f6c419', '#5a3418', 14);
       stem(ctx, 540, 400, 530, 350, 7);
       flower(ctx, 530, 345, 52, '#d42a22', '#1d1a18', 5);
+    },
+    uv(ctx) {
+      uvFlower(ctx, 120, 320, 70, 14);
+      uvFlower(ctx, 530, 345, 52, 5);
     } },
   ],
 };
@@ -206,6 +258,8 @@ const beach = {
 
 const underwater = {
   id: 'underwater', label: 'Underwater',
+  // Water soaks up near-infrared within about the first meter, and much of the UV.
+  noIr: true, uvLevel: 0.35,
   layers: [
     { distanceM: 12, draw(ctx) {
       ctx.fillStyle = vertical(ctx, 0, 400, ['#3fa6cc', '#145a80', '#0b3350']);
@@ -439,6 +493,8 @@ export const SCENES = [garden, forest, beach, underwater, street, fruit];
 export function imageScene(image) {
   return {
     id: 'own', label: 'Your image',
+    // A photo only recorded red, green and blue: there is no UV or infrared in it to show.
+    photo: true,
     layers: [{ distanceM: Infinity, draw(ctx) {
       const k = Math.max(SCENE_W / image.width, SCENE_H / image.height);
       const w = image.width * k;

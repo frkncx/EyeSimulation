@@ -28,10 +28,19 @@
     </aside>
 
     <section class="eye-stage" aria-label="3D eye">
+      <!-- Above the 3D view, not over it, so nothing here covers the model. -->
+      <div class="stage-top">
+        <div class="stage-row">
+          <div class="ray-buttons" id="rayButtons" role="group" aria-label="Light rays">
+            <button type="button" class="ray-button ray-button--uv" data-ray="uv" aria-pressed="false">UV</button>
+            <button type="button" class="ray-button ray-button--ir" data-ray="ir" aria-pressed="false">IR</button>
+          </div>
+          <p class="stage-hint">Drag to rotate · Scroll to zoom · Hover a part to learn what it does</p>
+        </div>
+        <p id="eyeNote" class="eye-note" hidden></p>
+      </div>
       <div id="eyeView" class="eye-view"></div>
       <p id="eyeMissing" class="eye-missing" hidden></p>
-      <p id="eyeNote" class="eye-note" hidden></p>
-      <p class="stage-hint">Drag to rotate · Scroll to zoom · Hover a part to learn what it does</p>
       <div class="stage-tools">
         <label class="cut-control">
           <span>Cut open</span>

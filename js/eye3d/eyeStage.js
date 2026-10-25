@@ -131,9 +131,10 @@ export class EyeStage {
   frame() {
     this.controls.update();
     // Re-check which labels are hidden behind the eye, a few times a second while things move.
-    const view = this.camera.matrixWorld.elements.join() + this.cut;
+    const view = this.camera.matrixWorld.elements.join() + this.cut + this.labelsOn;
     this.frameCount = (this.frameCount ?? 0) + 1;
-    if (view !== this.lastView && this.frameCount % 4 === 0) {
+    const moved = view !== this.lastView && this.frameCount % 4 === 0;
+    if (moved) {
       this.lastView = view;
       this.updateOcclusion();
     }
@@ -145,6 +146,28 @@ export class EyeStage {
     }
     this.renderer.render(this.scene, this.camera);
     this.labelRenderer.render(this.scene, this.camera);
+    if (moved) this.declutter();
+  }
+
+  /** Nudge label names up or down, whichever is closer, until none overlaps another (each dot stays on its part). */
+  declutter() {
+    const texts = (this.labels ?? []).filter(l => l.object.visible).map(l => l.object.element.firstElementChild);
+    for (const t of texts) t.style.transform = '';
+    const boxes = texts.map(t => ({ t, r: t.getBoundingClientRect() })).sort((a, b) => a.r.top - b.r.top);
+    const placed = [];
+    const hits = (r, top) => placed.find(p => r.left < p.right && r.right > p.left && top < p.bottom + 2 && top + r.height > p.top - 2);
+    const slide = (r, down) => {
+      let top = r.top;
+      for (let p = hits(r, top); p; p = hits(r, top)) top = down ? p.bottom + 2 : p.top - 2 - r.height;
+      return top;
+    };
+    for (const { t, r } of boxes) {
+      const down = slide(r, true);
+      const up = slide(r, false);
+      const top = r.top - up < down - r.top ? up : down;
+      if (top !== r.top) t.style.transform = `translateY(${top - r.top}px)`;
+      placed.push({ left: r.left, right: r.right, top, bottom: top + r.height });
+    }
   }
 
   /**

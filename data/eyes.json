@@ -13,7 +13,9 @@
     "fovea": { "label": "fovea", "tip": "The sharpest spot: a tiny pit packed with light sensors that sees the finest detail." },
     "opticNerve": { "label": "optic nerve", "tip": "The cable that carries the picture to the brain." },
     "wiring": { "label": "nerve fiber layer", "tip": "The nerve wiring: fibers that collect the signals from the light sensors.", "seeThrough": true },
-    "tapetum": { "label": "tapetum lucidum", "tip": "The night reflector: a shiny layer that bounces light back through the retina for a second chance. It makes eyes glow in the dark." }
+    "tapetum": { "label": "tapetum lucidum", "tip": "The night reflector: a shiny layer that bounces light back through the retina for a second chance. It makes eyes glow in the dark." },
+    "uvLight": { "label": "UV", "tip": "Ultraviolet light, just past violet. A slightly yellow lens stops it before it reaches the retina; without that filter, the eye can see it. Faint rays: nothing here sees it." },
+    "irLight": { "label": "IR", "tip": "Near-infrared light, just past red. It passes through the eye to the retina; only a sensor tuned far enough red can catch it. Faint rays: nothing here sees it." }
   },
   "settings": [
     { "id": "eyeSizeMm", "label": "Eye size", "type": "range", "min": 10, "max": 40, "step": 1, "unit": "mm",
@@ -131,7 +133,7 @@
       "defaults": { "eyeSizeMm": 20, "eyeShape": "round", "retina": "toward", "focus": 1, "pupilShape": "horizontal", "pupilMm": 4, "tapetum": "off",
         "colors": "1", "colorblind": "normal", "colorblindStrength": 0.5,
         "refraction": 0, "astigmatism": "off", "astigmatismStrength": 0.5, "amblyopia": "off", "amblyopiaStrength": 0.5,
-        "peaks": [475], "lensCutoffNm": 400, "uvLens": "on" },
+        "peaks": [475], "lensCutoffNm": 400, "uvLens": "on", "coldBlooded": true },
       "allowed": { "colors": ["1"] },
       "hide": ["rods"],
       "look": { "iris": "#a8864e" } },
@@ -159,10 +161,10 @@
         "peaks": [543], "lensCutoffNm": 400, "uvLens": "on" },
       "allowed": { "colors": ["1"] },
       "look": { "iris": "#7a4a20" } },
-    { "id": "fly", "label": "Fly", "type": "compound", "defaults": { "peaks": [330, 440, 480, 530], "lensCutoffNm": null, "uvLens": "none" } },
-    { "id": "bee", "label": "Bee", "type": "compound", "defaults": { "peaks": [345, 435, 545], "lensCutoffNm": null, "uvLens": "none" } },
-    { "id": "scallop", "label": "Scallop", "type": "mirror", "defaults": { "peaks": [490], "lensCutoffNm": null, "uvLens": "none" } },
-    { "id": "nautilus", "label": "Nautilus", "type": "pinhole", "defaults": { "peaks": [467], "lensCutoffNm": null, "uvLens": "none" } },
-    { "id": "flatworm", "label": "Flatworm", "type": "cup", "defaults": { "peaks": [490], "lensCutoffNm": null, "uvLens": "none" } }
+    { "id": "fly", "label": "Fly", "type": "compound", "defaults": { "peaks": [330, 440, 480, 530], "lensCutoffNm": null, "uvLens": "none", "coldBlooded": true } },
+    { "id": "bee", "label": "Bee", "type": "compound", "defaults": { "peaks": [345, 435, 545], "lensCutoffNm": null, "uvLens": "none", "coldBlooded": true } },
+    { "id": "scallop", "label": "Scallop", "type": "mirror", "defaults": { "peaks": [490], "lensCutoffNm": null, "uvLens": "none", "coldBlooded": true } },
+    { "id": "nautilus", "label": "Nautilus", "type": "pinhole", "defaults": { "peaks": [467], "lensCutoffNm": null, "uvLens": "none", "coldBlooded": true } },
+    { "id": "flatworm", "label": "Flatworm", "type": "cup", "defaults": { "peaks": [490], "lensCutoffNm": null, "uvLens": "none", "coldBlooded": true } }
   ]
 }

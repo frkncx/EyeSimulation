@@ -8,19 +8,34 @@ import { createSettings, rangeFor, eyeConfig, shows } from './ui/settingsPanel.j
 import { installTips } from './ui/tips.js';
 import { createSight } from './ui/sightPanel.js';
 import { createSpectrumBar } from './ui/spectrumBar.js';
-import { peaksForCount, dragRange } from './model/spectrum.js';
+import { peaksForCount, dragRange, bandReach } from './model/spectrum.js';
 
 // 3D models that exist so far, by type `model`. The other types arrive one build step at a time.
 const MODELS = { camera: buildCameraEye };
 const CUSTOM = 'custom';
 const BIG_EYE_MM = 30;
 
-// Short notes over the 3D eye, shown while their setting is on.
+// Short notes above the 3D eye, shown while their setting is on. `when` gets the settings and the whole state.
 const EYE_NOTES = [
   { when: s => s.amblyopia === 'on', text: 'The eye is healthy. The brain gives its signal less weight.' },
   { when: s => s.eyeSizeMm >= BIG_EYE_MM, text: 'Bigger eye, more light: but it takes up more of the head and costs more energy.' },
   { when: s => s.eyeShape === 'tube', text: 'Can’t move in its socket: the animal turns its head instead.' },
+  { when: (s, st) => st.rays.uv && bandReach(s).uv, text: 'Seeing UV: the retina is exposed to light that damages it over a lifetime.' },
 ];
+
+/** What the UV and IR rays are doing in this eye right now, for the buttons' hover text. */
+function rayTips(s, rays) {
+  const reach = bandReach(s);
+  const uvNow = reach.uv ? 'UV passes the clear lens and reaches the retina, where the bluest sensor picks some of it up.'
+    : s.uvLens === 'on' && s.lensCutoffNm ? 'UV is stopped by the slightly yellow lens, so it never reaches the retina.'
+    : 'UV gets through to the retina, but no sensor here is tuned blue enough to catch it.';
+  const irNow = reach.ir ? 'Near-infrared reaches the retina, and the red-shifted reddest sensor picks it up.'
+    : 'Near-infrared reaches the retina, but no sensor here is tuned red enough to catch it.';
+  return {
+    uv: `${rays.uv ? 'Hide' : 'Show'} ultraviolet light rays. ${uvNow}`,
+    ir: `${rays.ir ? 'Hide' : 'Show'} infrared light rays. ${irNow}`,
+  };
+}
 
 const $ = sel => document.querySelector(sel);
 
@@ -37,7 +52,7 @@ async function main() {
   const startType = typeById[data.defaultType];
   const store = createStore({
     typeId: startType.id, exampleId: startType.defaultExample, settings: defaultsFor(startType.defaultExample),
-    cut: 0, labels: true, sceneId: 'garden', light: 1, ownImage: null, spectrumNote: null,
+    cut: 0, labels: true, sceneId: 'garden', light: 1, ownImage: null, spectrumNote: null, rays: { uv: false, ir: false },
   });
   const stage = new EyeStage($('#eyeView'), data.parts, $('#tooltip'));
 
@@ -91,6 +106,11 @@ async function main() {
   const cutSlider = $('#cutSlider');
   cutSlider.addEventListener('input', () => store.set({ cut: Number(cutSlider.value) / 100 }));
   $('#labelsToggle').addEventListener('click', () => store.set(s => ({ labels: !s.labels })));
+  const rayButtons = $('#rayButtons');
+  rayButtons.addEventListener('click', e => {
+    const btn = e.target.closest('[data-ray]');
+    if (btn) store.set(s => ({ rays: { ...s.rays, [btn.dataset.ray]: !s.rays[btn.dataset.ray] } }));
+  });
 
   const buttons = $('#eyeButtons');
   buttons.innerHTML = data.types.map(t => `
@@ -131,11 +151,19 @@ async function main() {
     $('#resetButton').dataset.tip = `Put the ${example.label.toLowerCase()} settings, the flower garden and daylight back.`;
 
     const model = MODELS[type.model];
-    if (!prev || s.typeId !== prev.typeId || s.exampleId !== prev.exampleId || s.settings !== prev.settings) {
+    if (!prev || s.typeId !== prev.typeId || s.exampleId !== prev.exampleId || s.settings !== prev.settings || s.rays !== prev.rays) {
       $('#eyeMissing').hidden = !!model;
       $('#eyeMissing').textContent = model ? '' : `The ${type.label.toLowerCase()} arrives in a later step`;
+      rayButtons.hidden = !model;
+      const tips = rayTips(s.settings, s.rays);
+      for (const btn of rayButtons.querySelectorAll('[data-ray]')) {
+        btn.setAttribute('aria-pressed', String(s.rays[btn.dataset.ray]));
+        btn.dataset.tip = tips[btn.dataset.ray];
+        // The button just clicked keeps its hover text, updated.
+        if (btn.matches(':hover')) btn.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }));
+      }
       if (model) {
-        stage.setEye(model({ ...s.settings, irisColor: example.look?.iris }));
+        stage.setEye(model({ ...s.settings, irisColor: example.look?.iris, rays: s.rays }));
         settingsPanel.update(configFor(s), s.settings);
         sightSettings.update(configFor(s), s.settings);
       } else {
@@ -143,7 +171,7 @@ async function main() {
         sightSettings.clear('');
       }
       $('#eyeView').hidden = !model;
-      const notes = model ? EYE_NOTES.filter(n => n.when(s.settings)).map(n => n.text) : [];
+      const notes = model ? EYE_NOTES.filter(n => n.when(s.settings, s)).map(n => n.text) : [];
       $('#eyeNote').hidden = !notes.length;
       $('#eyeNote').innerHTML = notes.map(t => `<span>${escapeHtml(t)}</span>`).join('');
     }

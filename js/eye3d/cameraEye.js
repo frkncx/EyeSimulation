@@ -2,6 +2,7 @@
 // Round parts are lathed from a 2D side profile: [distance from the axis, position along it].
 import * as THREE from 'three';
 import { rodsPerCone } from '../ui/settingsPanel.js';
+import { bandReach } from '../model/spectrum.js';
 
 const R = 12; // human eye: about 24 mm across
 const AXIAL_STRETCH = 0.08; // eye length change at the strongest near- or farsightedness (drawn larger than life)
@@ -131,6 +132,23 @@ function cylinderBetween(part, a, b, radius, mat) {
   return m;
 }
 
+/** A light ray as an arrow through these points, with its head at the last one; `faint` when nothing sees it. */
+function rayArrow(part, points, color, faint) {
+  const mat = material(color, {
+    emissive: color, emissiveIntensity: 0.7, roughness: 0.4, transparent: faint, opacity: faint ? 0.35 : 1,
+  });
+  const ray = new THREE.Group();
+  const last = points.length - 1;
+  const dir = new THREE.Vector3().subVectors(points[last], points[last - 1]).normalize();
+  const neck = points[last].clone().addScaledVector(dir, -0.9);
+  for (let i = 0; i < last; i++) ray.add(cylinderBetween(part, points[i], i === last - 1 ? neck : points[i + 1], 0.12, mat));
+  const head = mesh(part, new THREE.ConeGeometry(0.32, 0.9, 16), mat);
+  head.position.copy(neck).addScaledVector(dir, 0.45);
+  head.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+  ray.add(head);
+  return ray;
+}
+
 /**
  * Build the eye from its settings. The model is drawn at human size (24 mm) and scaled, so
  * millimeter values like the pupil are converted to model units first.
@@ -140,7 +158,9 @@ function cylinderBetween(part, a, b, radius, mat) {
 export function buildCameraEye({
   eyeSizeMm = 24, pupilMm = 4, pupilShape = 'round', focus = 1, retina = 'away', tapetum = 'off', irisColor = '#6b4a2e',
   refraction = 0, astigmatism = 'off', astigmatismStrength = 0.5, eyeShape = 'round', rods = null,
+  peaks = null, lensCutoffNm = null, uvLens = 'none', rays = { uv: false, ir: false },
 } = {}) {
+  const reach = bandReach({ peaks, lensCutoffNm, uvLens });
   const group = new THREE.Group();
   const scale = eyeSizeMm / (2 * R);
   group.scale.setScalar(scale);
@@ -172,14 +192,17 @@ export function buildCameraEye({
   const lining = full => (tube ? Math.PI / 2 : full);
   group.add(mesh('choroid', lathe(arc(backR - 0.6, 0, lining(2.25), 60, cz)), material('#5a2e26')));
   // Up close, the retina shows its mix of rods and cones.
+  // An eye that sees UV gets UV on its retina: a soft violet glow, while the UV rays are shown.
+  const uvGlow = reach.uv && rays.uv ?{ emissive: '#8a4cff', emissiveIntensity: 0.14 } : {};
   const retinaMat = rods == null
-    ? material('#e08a6a', { roughness: 0.7 })
-    : material('#ffffff', { roughness: 0.7, map: retinaTexture(rodsPerCone(rods)) });
-  group.add(mesh('retina', lathe(arc(backR - 0.85, 0, lining(2.2), 60, cz)), retinaMat));
+    ? material('#e08a6a', { roughness: 0.7, ...uvGlow })
+    : material('#ffffff', { roughness: 0.7, map: retinaTexture(rodsPerCone(rods)), ...uvGlow });
+  // The retina ends a few mm short of the focus muscle (the ora serrata), about 7 mm behind the cornea's edge.
+  group.add(mesh('retina', lathe(arc(backR - 0.85, 0, lining(2.0), 60, cz)), retinaMat));
 
   // Nerve wiring: in front of the light sensors (facing away from light) or behind them.
   const wiringR = wiringInFront ? backR - 1.05 : backR - 0.72;
-  group.add(mesh('wiring', lathe(arc(wiringR, 0, lining(2.15), 60, cz)), material('#f4f1ea', {
+  group.add(mesh('wiring', lathe(arc(wiringR, 0, lining(1.95), 60, cz)), material('#f4f1ea', {
     transparent: true, opacity: wiringInFront ? 0.3 : 0.9, depthWrite: false, roughness: 0.4,
   })));
 
@@ -250,7 +273,11 @@ export function buildCameraEye({
     const a = (i / 48) * Math.PI;
     lens.push([lensRadius * Math.sin(a), lensZ + (a < Math.PI / 2 ? front : back) * Math.cos(a)]);
   }
-  group.add(mesh('lens', lathe(lens), material('#f3e7b0', { transparent: true, opacity: 0.6, roughness: 0.15 })));
+  // A UV-blocking lens is faintly yellow; one that lets UV through is clear.
+  const lensTinted = uvLens === 'on' && !reach.uv;
+  group.add(mesh('lens', lathe(lens), material(lensTinted ? '#f3e7b0' : '#eef5f7', {
+    transparent: true, opacity: lensTinted ? 0.6 : 0.4, roughness: 0.15,
+  })));
 
   // Vitreous gel: fills the eye from just behind the lens and focus muscle back to the retina.
   // Profile: up the inside of the wall, in toward the lens, then along the back of the lens to the axis.
@@ -297,11 +324,20 @@ export function buildCameraEye({
   } else {
     // The wiring is already behind the retina, so thin bundles leave all over the back: no hole.
     const meet = new THREE.Vector3(0, 0, cz - (backR + 8));
+    // Each bundle leaves straight out from the wall, then bends to its own spot on the cable's rim,
+    // so neighbors never cross.
     for (let i = 0; i < 9; i++) {
       const a = (i / 9) * Math.PI * 2;
-      const tilt = THREE.MathUtils.degToRad(i % 2 ? 16 : 28);
-      const start = fromCenter(new THREE.Vector3(Math.sin(tilt) * Math.cos(a), Math.sin(tilt) * Math.sin(a), -Math.cos(tilt)), backR - 0.3);
-      group.add(cylinderBetween('opticNerve', start, meet, 0.32, nerveMat));
+      const tilt = THREE.MathUtils.degToRad(24);
+      const out = new THREE.Vector3(Math.sin(tilt) * Math.cos(a), Math.sin(tilt) * Math.sin(a), -Math.cos(tilt));
+      const start = fromCenter(out, backR - 0.3);
+      const bend = fromCenter(out, backR + 2.2);
+      const rim = meet.clone().add(new THREE.Vector3(Math.cos(a), Math.sin(a), 0).multiplyScalar(1.0));
+      group.add(cylinderBetween('opticNerve', start, bend, 0.32, nerveMat));
+      group.add(cylinderBetween('opticNerve', bend, rim, 0.32, nerveMat));
+      const joint = mesh('opticNerve', new THREE.SphereGeometry(0.32, 16, 12), nerveMat);
+      joint.position.copy(bend);
+      group.add(joint);
     }
     group.add(cylinderBetween('opticNerve', meet, new THREE.Vector3(0, 0, cz - (backR + 16)), 1.4, nerveMat));
     nerveLabelAt = new THREE.Vector3(0, 0, cz - (backR + 14));
@@ -313,6 +349,27 @@ export function buildCameraEye({
   group.add(fovea);
 
   const v = (x, y, z) => new THREE.Vector3(x, y, z);
+  // Light rays through the pupil, when their button is on: violet UV ones stop at a UV-blocking lens, or
+  // reach the retina; red IR ones always reach it. Rays no sensor catches are drawn faint.
+  const rayStartZ = corneaCenter + corneaR + 6;
+  const lensFrontZ = lensZ + front + 0.15;
+  const ray = (part, angleDeg, color, throughLens, faint) => {
+    const a = THREE.MathUtils.degToRad(angleDeg);
+    const x = pupilRx * 0.55 * Math.cos(a);
+    const y = pupilRy * 0.55 * Math.sin(a);
+    const points = [v(x, y, rayStartZ), v(x, y, lensFrontZ)];
+    if (throughLens) {
+      // The lens bends the rays in toward the fovea.
+      const ex = x * 0.2;
+      const ey = y * 0.2;
+      points.push(v(ex, ey, cz - Math.sqrt(onRetina ** 2 - ex ** 2 - ey ** 2) + 0.35));
+    }
+    group.add(rayArrow(part, points, color, faint));
+  };
+  // All rays sit on the half that stays when the eye is cut open (x ≤ 0), UV and IR taking turns.
+  const uvThrough = reach.uv || uvLens !== 'on' || !lensCutoffNm;
+  if (rays.uv) for (const a of [90, 150, 210]) ray('uvLight', a, '#8a4cff', uvThrough, !reach.uv);
+  if (rays.ir) for (const a of [120, 180, 240]) ray('irLight', a, '#e0301e', true, !reach.ir);
   const anchors = [
     { part: 'cornea', position: v(0, rimR * 0.55, corneaCenter + corneaR - 0.6), side: 'right' },
     { part: 'iris', position: v(0, -(irisR - 1), irisZ + 0.05), side: 'left' },

@@ -4,12 +4,14 @@
 //   1. blur     each scene layer by its distance: focus and pupil (defocus), eye size (detail), pupil (diffraction),
 //               plus the vision problems (near/farsighted shift the focus, astigmatism blurs across, amblyopia everywhere)
 //   2. light    day to night, pupil size and the night reflector change how bright it is; night fades color
-//   3. colors   1 to 3 colors simulated, 4 and 5 shown as made-up colors
+//   3. colors   1 to 3 colors simulated, 4 and 5 shown as made-up colors; UV and infrared, when the eye's
+//               range reaches them, added in stand-in colors (infrared a little blurrier, with body-heat noise)
 //   4. glare    the night reflector scatters light
 //   5. gap      the blind spot, when the retina faces away from the light
 import { createCanvas, drawBlurred, supportsCanvasFilter, SRGB_TO_LINEAR, linearToSrgb } from './imageOps.js';
 import { defocusBlurPx, dioptersBlurPx, vergence, REFRACTION_MAX_D } from '../model/optics.js';
 import { colorStep, shiftColors, ROD_WEIGHTS } from './colorVision.js';
+import { bandReach, UV_FROM_NM, IR_FROM_NM } from '../model/spectrum.js';
 import { focusDistanceM, rodsPerCone } from '../ui/settingsPanel.js';
 import { PUPIL_ASPECT } from '../eye3d/cameraEye.js';
 import { SCENE_W, SCENE_H } from '../scenes/scenes.js';
@@ -41,6 +43,18 @@ const DAZZLE = 0.45; // how washed out a very rod-heavy eye looks in daylight
 const GRAIN_LEVEL = 0.006; // grain strength at daylight with a 4 mm pupil
 const GRAIN_MAX = 0.3;
 const GRAIN_PX = 50; // grain strength in screen levels (0..255) at full grain on a white pixel
+// UV and infrared (all simplified). UV counts once the range goes below 400 nm, fully at 320 nm;
+// infrared once it goes past 720 nm, fully at 790 nm.
+const UV_COLOR = [0.45, 0.05, 1]; // stand-in colors, in linear light: UV violet, infrared red-orange
+const IR_COLOR = [1, 0.22, 0.08];
+const greyOf = c => { const y = 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]; return [y, y, y]; };
+const UV_GREY = greyOf(UV_COLOR);
+const IR_GREY = greyOf(IR_COLOR);
+const UV_STRENGTH = 1.1;
+const IR_STRENGTH = 0.5;
+const IR_BLUR = 2.4; // px of extra blur on infrared at full reach, with a 4 mm pupil
+const IR_NOISE_PX = 5; // body-heat noise in screen levels, soft and low-contrast
+const COLD_BLOODED_NOISE = 0.35;
 
 // One fixed grain pattern, so the picture doesn't flicker between redraws.
 const NOISE = (() => {
@@ -80,6 +94,9 @@ export function sightParams(settings, light) {
   const errorD = (settings.refraction ?? 0) * REFRACTION_MAX_D;
   const eyeFocusD = Math.max(0, focusD - errorD);
   const amblyopia = settings.amblyopia === 'on' ? settings.amblyopiaStrength : 0;
+  const reach = bandReach(settings);
+  const uv = reach.uv ? smoothstep(UV_FROM_NM, 320, reach.lo) : 0;
+  const ir = reach.ir ? smoothstep(IR_FROM_NM, 790, reach.hi) : 0;
   return {
     pupilW, pupilH, tapetum, night,
     focusM: eyeFocusD < 0.05 ? Infinity : 1 / eyeFocusD,
@@ -101,6 +118,13 @@ export function sightParams(settings, light) {
     grain: grain < 0.01 ? 0 : grain,
     tube: settings.eyeShape === 'tube',
     blindSpot: settings.retina === 'away',
+    uv,
+    ir,
+    oneSensor: settings.peaks?.length === 1,
+    // Longer light spreads more through the same pupil, so infrared blurs more; a bigger pupil helps.
+    irBlur: IR_BLUR * ir * Math.sqrt(4 / Math.max(0.5, Math.min(pupilW, pupilH))),
+    // A warm body glows in infrared too, and sets off red-tuned sensors by mistake.
+    irNoise: ir * (settings.coldBlooded ? COLD_BLOODED_NOISE : 1),
     color: colorStep(settings),
     light,
   };
@@ -113,6 +137,9 @@ export class SightRenderer {
     this.glow = createCanvas(VIEW_W, VIEW_H);
     this.work = createCanvas(VIEW_W, VIEW_H);
     this.squash = createCanvas(VIEW_W, VIEW_H);
+    this.uv = createCanvas(VIEW_W, VIEW_H);
+    this.ir = createCanvas(VIEW_W, VIEW_H);
+    this.bands = new WeakMap(); // scene → each layer's UV and infrared pictures, made once
   }
 
   render(out, scene, p) {
@@ -122,8 +149,16 @@ export class SightRenderer {
     gctx.clearRect(0, 0, VIEW_W, VIEW_H);
     gctx.globalCompositeOperation = 'lighter';
     let anyGlow = false;
+    // UV and infrared only cost anything when the eye reaches them and the scene has them.
+    const useUv = p.uv > 0;
+    const useIr = p.ir > 0 && !scene.noIr;
+    const bands = (useUv || useIr) && !scene.photo ? this.bandsFor(scene) : null;
+    const uctx = bands && useUv ? this.uv.getContext('2d', { willReadFrequently: true }) : null;
+    const ictx = bands && useIr ? this.ir.getContext('2d', { willReadFrequently: true }) : null;
+    uctx?.clearRect(0, 0, VIEW_W, VIEW_H);
+    ictx?.clearRect(0, 0, VIEW_W, VIEW_H);
 
-    for (const layer of scene.layers) {
+    scene.layers.forEach((layer, k) => {
       const [sx, sy] = blurFor(layer.distanceM, p);
       this.paint(ctx => layer.draw(ctx, p.light));
       this.blurXY(bctx, sx, sy);
@@ -132,10 +167,17 @@ export class SightRenderer {
         this.blurXY(gctx, sx, sy);
         anyGlow = true;
       }
-    }
+      if (uctx) this.blurXY(uctx, sx, sy, bands[k].uv);
+      if (ictx) this.blurXY(ictx, Math.hypot(sx, p.irBlur), Math.hypot(sy, p.irBlur), bands[k].ir);
+    });
     gctx.globalCompositeOperation = 'source-over';
 
-    this.light(bctx, anyGlow ? gctx : null, p);
+    this.light(bctx, anyGlow ? gctx : null, p, {
+      uv: uctx?.getImageData(0, 0, VIEW_W, VIEW_H).data,
+      ir: ictx?.getImageData(0, 0, VIEW_W, VIEW_H).data,
+      uvGain: p.uv * UV_STRENGTH * (scene.uvLevel ?? 1),
+      irGain: p.ir * IR_STRENGTH,
+    });
     if (p.tapetum) this.glare(0.25 + 0.45 * p.night);
     // Rods are overwhelmed by bright light: a very rod-heavy eye is dazzled.
     if (p.dazzle) this.glare(p.dazzle);
@@ -156,11 +198,52 @@ export class SightRenderer {
   }
 
   /**
-   * Blur the layer canvas by sx across and sy up-down, and draw it onto ctx.
+   * Each layer of the scene as it would look in UV and in near-infrared, in grey (white = reflects a lot).
+   * A rough base comes from the layer's colors (simplified): in infrared, leaves and grass are bright,
+   * sky and water dark, everything else about as bright as it looks; in UV most things are dark and
+   * the sky a little bright. The layer's own `uv` paints its hand-made patterns on top.
+   */
+  bandsFor(scene) {
+    let bands = this.bands.get(scene);
+    if (bands) return bands;
+    bands = scene.layers.map(layer => {
+      this.paint(ctx => layer.draw(ctx, 1));
+      const src = this.layer.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, VIEW_W, VIEW_H);
+      const uv = new ImageData(VIEW_W, VIEW_H);
+      const ir = new ImageData(VIEW_W, VIEW_H);
+      const d = src.data;
+      for (let i = 0; i < d.length; i += 4) {
+        const r = d[i], g = d[i + 1], b = d[i + 2];
+        const lum = 0.3 * r + 0.59 * g + 0.11 * b;
+        const leafy = Math.max(0, g - Math.max(r, b));
+        const bluish = Math.max(0, b - 0.9 * Math.max(r, g));
+        const u = Math.min(255, 0.15 * lum + 0.8 * bluish);
+        const n = Math.min(255, Math.max(0, 0.55 * lum + 3.5 * leafy - 1.2 * bluish));
+        uv.data[i] = uv.data[i + 1] = uv.data[i + 2] = u;
+        ir.data[i] = ir.data[i + 1] = ir.data[i + 2] = n;
+        uv.data[i + 3] = ir.data[i + 3] = d[i + 3];
+      }
+      const uvCanvas = createCanvas(VIEW_W, VIEW_H);
+      const irCanvas = createCanvas(VIEW_W, VIEW_H);
+      uvCanvas.getContext('2d').putImageData(uv, 0, 0);
+      irCanvas.getContext('2d').putImageData(ir, 0, 0);
+      if (layer.uv) {
+        const ctx = uvCanvas.getContext('2d');
+        ctx.setTransform(VIEW_W / SCENE_W, 0, 0, VIEW_H / SCENE_H, 0, 0);
+        layer.uv(ctx);
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+      }
+      return { uv: uvCanvas, ir: irCanvas };
+    });
+    this.bands.set(scene, bands);
+    return bands;
+  }
+
+  /**
+   * Blur a canvas (the layer canvas unless `src` is given) by sx across and sy up-down, and draw it onto ctx.
    * Uneven blur (from a slit pupil) squeezes the picture along the blurrier side, blurs evenly, then stretches it back.
    */
-  blurXY(ctx, sx, sy) {
-    const src = this.layer;
+  blurXY(ctx, sx, sy, src = this.layer) {
     const hi = Math.max(sx, sy);
     const lo = Math.max(1, Math.min(sx, sy));
     if (hi < 0.3) {
@@ -182,11 +265,14 @@ export class SightRenderer {
     ctx.drawImage(sq, 0, 0, VIEW_W, VIEW_H);
   }
 
-  /** Brightness and colors. Works per pixel in linear light. */
-  light(bctx, gctx, p) {
+  /** Brightness and colors, plus UV and infrared in their stand-in colors. Works per pixel in linear light. */
+  light(bctx, gctx, p, { uv, ir, uvGain, irGain }) {
     const img = bctx.getImageData(0, 0, VIEW_W, VIEW_H);
     const d = img.data;
     const g = gctx?.getImageData(0, 0, VIEW_W, VIEW_H).data;
+    const uvK = uvGain * p.exposure / 255;
+    const irK = irGain * p.exposure / 255;
+    const heat = p.irNoise * IR_NOISE_PX;
     const m = p.color?.kind === 'matrix' ? p.color.m : null;
     const shift = p.color?.kind === 'shift' ? p.color.channels : 0;
     const shifted = [0, 0, 0];
@@ -206,7 +292,9 @@ export class SightRenderer {
         gr += SRGB_TO_LINEAR[g[i + 1]] * a;
         b += SRGB_TO_LINEAR[g[i + 2]] * a;
       }
-      const rod = p.purkinje ? wr * r + wg * gr + wb * b : 0;
+      const u = uv ? uv[i] * (uv[i + 3] / 255) * uvK : 0;
+      const n = ir ? ir[i] * (ir[i + 3] / 255) * irK : 0;
+      const rod = p.purkinje ? wr * (r + u + n) + wg * (gr + u + n) + wb * (b + u + n) : 0;
       if (m) {
         const r2 = m[0] * r + m[1] * gr + m[2] * b;
         const g2 = m[3] * r + m[4] * gr + m[5] * b;
@@ -215,6 +303,14 @@ export class SightRenderer {
       } else if (shift) {
         shiftColors(r, gr, b, shift, shifted);
         [r, gr, b] = shifted;
+      }
+      // UV and infrared go on after the color step, in their stand-in colors (grey for an eye with one sensor).
+      if (u || n) {
+        const [ur, ug, ub] = p.oneSensor ? UV_GREY : UV_COLOR;
+        const [nr, ng, nb] = p.oneSensor ? IR_GREY : IR_COLOR;
+        r += ur * u + nr * n;
+        gr += ug * u + ng * n;
+        b += ub * u + nb * n;
       }
       const y = LUMA[0] * r + LUMA[1] * gr + LUMA[2] * b;
       if (fade > 0) {
@@ -237,7 +333,14 @@ export class SightRenderer {
       const sg = MID_GREY + (linearToSrgb(gr) - MID_GREY) * p.contrast;
       const sb = MID_GREY + (linearToSrgb(b) - MID_GREY) * p.contrast;
       // Photon grain grows with the light that is there: lit things sparkle, black stays black.
-      const noise = p.grain ? NOISE[i >> 2] * p.grain * GRAIN_PX * Math.sqrt(Math.max(0, sr + sg + sb) / 765) : 0;
+      let noise = p.grain ? NOISE[i >> 2] * p.grain * GRAIN_PX * Math.sqrt(Math.max(0, sr + sg + sb) / 765) : 0;
+      // Body-heat noise shows even on black: soft, in 2×2 blobs, from another part of the fixed pattern.
+      if (heat) {
+        const px = i >> 2;
+        const x = px % VIEW_W;
+        const y = (px - x) / VIEW_W;
+        noise += NOISE[((y >> 1) * VIEW_W + (x >> 1) + 7919) % NOISE.length] * heat;
+      }
       d[i] = sr + noise;
       d[i + 1] = sg + noise;
       d[i + 2] = sb + noise;

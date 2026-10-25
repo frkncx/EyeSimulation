@@ -9,7 +9,10 @@ export function installTips(tooltip) {
     const r = el.getBoundingClientRect();
     const w = tooltip.offsetWidth;
     tooltip.style.left = `${Math.max(12, Math.min(r.left, window.innerWidth - w - 12))}px`;
-    tooltip.style.top = `${r.bottom + 8}px`;
+    // Below the element, or above it when there's no room underneath.
+    const h = tooltip.offsetHeight;
+    const below = r.bottom + 8 + h <= window.innerHeight - 8;
+    tooltip.style.top = `${below ? r.bottom + 8 : Math.max(8, r.top - 8 - h)}px`;
   };
   const hide = () => { tooltip.hidden = true; };
   const target = e => e.target.closest?.('[data-tip]');

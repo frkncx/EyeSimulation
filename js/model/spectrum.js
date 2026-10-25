@@ -45,6 +45,17 @@ export function visibleRange(peaks, lensCutoffNm, uvLens) {
   return { lo: Math.max(BAR_MIN, cut, lo), hi: Math.min(BAR_MAX, hi) };
 }
 
+// Where ultraviolet and infrared start, for this simulation's effects (simplified lines).
+export const UV_FROM_NM = 400;
+export const IR_FROM_NM = 720;
+
+/** Whether the eye's visible range reaches into UV and into infrared. */
+export function bandReach(settings) {
+  if (!settings.peaks) return { uv: false, ir: false };
+  const { lo, hi } = visibleRange(settings.peaks, settings.lensCutoffNm, settings.uvLens);
+  return { uv: lo < UV_FROM_NM, ir: hi > IR_FROM_NM, lo, hi };
+}
+
 /** `n` peaks spread evenly over a sensor range. */
 function spread(lo, hi, n) {
   const first = lo + BLUE_MARGIN;
@@ -55,14 +66,16 @@ function spread(lo, hi, n) {
 
 /**
  * The peaks after a color button picks `n` sensors: the example's own peaks when it has that many,
- * otherwise a typical spacing for `n`, centered where the range was.
+ * otherwise a typical spacing for `n`, centered where the range was. A wider spread doesn't push
+ * the eye into infrared unless it already reached there.
  */
 export function peaksForCount(n, peaks, examplePeaks) {
   if (examplePeaks?.length === n) return [...examplePeaks];
   const { lo, hi } = sensorRange(peaks);
   const width = minWidth(1) + (TYPICAL_GAP[n] ?? 0) * (n - 1);
+  const top = hi > IR_FROM_NM ? BAR_MAX : IR_FROM_NM;
   let start = (lo + hi) / 2 - width / 2;
-  start = Math.min(Math.max(start, BAR_MIN - BLUE_MARGIN), BAR_MAX - width);
+  start = Math.min(Math.max(start, BAR_MIN - BLUE_MARGIN), top - width);
   return spread(start, start + width, n);
 }
 

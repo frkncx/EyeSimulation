@@ -1,7 +1,7 @@
 // The light spectrum bar in the header: what the current eye can see, and a control for it.
 // Drag either end of the highlighted range to change the eye; main.js turns the drag into new sensor peaks.
 import { escapeHtml } from './glossary.js';
-import { BAR_MIN, BAR_MAX, visibleRange, effectivePeaks, sensitivity, wavelengthColor } from '../model/spectrum.js';
+import { BAR_MIN, BAR_MAX, IR_FROM_NM, visibleRange, effectivePeaks, sensitivity, wavelengthColor } from '../model/spectrum.js';
 
 const H = 40;
 const LEFT_ZONE = 30; // px for the shaded zone below 300 nm (its label shows on hover)
@@ -19,8 +19,9 @@ const IR_ZONE_TIP = 'No eye sees here. Longer light is too weak to tell apart fr
 function handleTip(end, nm) {
   return end === 'lo'
     ? `UV end: ${nm} nm. Drag to change the shortest light this eye sees.`
-    : `IR end: ${nm} nm. Drag to change the longest light this eye sees.`;
+    : `IR end: ${nm} nm. Drag to change the longest light this eye sees. Past ${IR_FROM_NM} nm (a simplified line) it picks up near-infrared.`;
 }
+const PIGMENT_TIP = 'Real eyes reach further red by changing their light-catching molecule, as some fish do.';
 const LOCKED_TIP = 'This example’s range is fixed.';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -75,6 +76,13 @@ export function createSpectrumBar(root, { onDrag }) {
       return `<path d="M${px - 4},${BAR_TOP - 5} h8 l-4,5 z" fill="var(--ink)"/>
         <line x1="${px}" x2="${px}" y1="${BAR_TOP}" y2="${BAR_TOP + BAR_H}" stroke="var(--ink)" stroke-width="2"/>`;
     }).join('');
+    // Seeing past 720 nm takes a red-shifted pigment: label the reddest marker, above the bar.
+    const reddest = Math.max(...peaks);
+    const pigment = hi > IR_FROM_NM ? `
+      <g class="spectrum-zone" tabindex="0" data-tip="${escapeHtml(PIGMENT_TIP)}">
+        <rect x="${x(reddest) + 4}" y="0" width="122" height="${BAR_TOP - 1}" fill="transparent"/>
+        <text class="spectrum-pigment" x="${x(reddest) + 6}" y="${BAR_TOP - 3}">Red-shifted pigment</text>
+      </g>` : '';
     const handle = (end, nm) => `
       <g class="spectrum-handle" data-end="${end}" tabindex="0" role="slider"
         aria-label="${end === 'lo' ? 'Blue end' : 'Red end'}" aria-valuemin="${BAR_MIN}" aria-valuemax="${BAR_MAX}"
@@ -108,6 +116,7 @@ export function createSpectrumBar(root, { onDrag }) {
       <rect x="${x(hi)}" y="${BAR_TOP}" width="${x(BAR_MAX) - x(hi)}" height="${BAR_H}" fill="#fff" opacity="0.72"/>
       <rect x="${x(lo)}" y="${BAR_TOP - 1}" width="${x(hi) - x(lo)}" height="${BAR_H + 2}" fill="none" stroke="var(--ink)" stroke-width="2"/>
       ${markers}
+      ${pigment}
       ${tick(400)}${tick(700)}
       ${label(350, 'UV')}${label(550, 'Visible to humans')}${label(750, 'IR')}
       ${locked ? '' : handle('lo', lo) + handle('hi', hi)}`;

@@ -129,7 +129,12 @@ export function createSettings(root, data, onChange, place = 'settings') {
       builtFor = null;
     },
     update(eye, settings) {
-      if (builtFor !== eye.key) build(eye);
+      if (builtFor !== eye.key) {
+        build(eye);
+        root.style.minHeight = '';
+      }
+      // A row that hides must not make the panel shorter, or it scrolls away from the button just clicked.
+      const heightBefore = root.offsetHeight;
       for (const id of here(eye)) {
         const s = byId[id];
         const row = root.querySelector(`[data-row="${id}"]`);
@@ -146,6 +151,7 @@ export function createSettings(root, data, onChange, place = 'settings') {
           for (const btn of row.querySelectorAll('.choice')) btn.setAttribute('aria-pressed', String(btn.dataset.option === value));
         }
       }
+      if (root.offsetHeight < heightBefore) root.style.minHeight = `${heightBefore}px`;
     },
   };
 }

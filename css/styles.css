@@ -69,6 +69,7 @@ button { font: inherit; color: inherit; }
 .spectrum-svg { flex: 1; min-width: 0; display: block; overflow: visible; touch-action: none; }
 .spectrum-svg text { font: 600 12px var(--font); fill: var(--muted); pointer-events: none; }
 .spectrum-zone { cursor: help; }
+.spectrum-svg .spectrum-pigment { fill: var(--ink); paint-order: stroke; stroke: var(--panel); stroke-width: 3px; }
 .spectrum-handle { cursor: ew-resize; outline: none; }
 .spectrum-handle:focus-visible rect:nth-child(2) { stroke: var(--accent); stroke-width: 3; }
 .spectrum-note {
@@ -85,7 +86,7 @@ button { font: inherit; color: inherit; }
 }
 
 /* Settings panel */
-.settings { display: grid; gap: 14px; }
+.settings { display: grid; gap: 14px; align-content: start; }
 .setting[hidden] { display: none; }
 .setting-group {
   display: grid; gap: 14px; padding: 12px 0 14px;
@@ -135,13 +136,20 @@ button { font: inherit; color: inherit; }
 .sight-tag[hidden] { display: none; }
 .sight-tag--blind { transform: translateX(-50%); }
 .sight-tag--made-up { top: 8px; left: 8px; border: 2px dashed var(--ink); }
+/* Short notes laid over the bottom of the view, so the tight panel doesn't grow. */
+.sight-notes {
+  position: absolute; left: 8px; right: 8px; bottom: 8px; display: grid; justify-items: start; gap: 4px;
+  pointer-events: none;
+}
+.sight-notes span {
+  padding: 1px 7px; font-size: 13px; font-weight: 600; line-height: 19px;
+  background: rgb(255 255 255 / 0.9); color: var(--ink); border-radius: 4px;
+}
 .sight-missing {
   position: absolute; inset: 0; display: grid; place-items: center; margin: 0; padding: 16px; text-align: center;
   color: var(--stage-ink); font-size: 16px; font-weight: 600;
 }
 .sight-missing[hidden] { display: none; }
-.sight-note { margin: -5px 0 -4px; font-size: 15px; color: var(--ink); }
-.sight-note[hidden] { display: none; }
 /* Light and Focus side by side; Light takes the whole row when the eye has no focus. */
 .sight-controls { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 20px; }
 .sight-settings { display: grid; gap: 10px; }
@@ -154,13 +162,27 @@ button { font: inherit; color: inherit; }
 }
 .panel {
   min-height: 0; overflow-y: auto; padding: 16px;
+  /* Rows that appear or hide must not scroll the panel away from the button just clicked. */
+  overflow-anchor: none;
   background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
 }
 .eye-stage {
-  position: relative; min-height: 0; overflow: hidden;
+  position: relative; min-height: 0; overflow: hidden; display: flex; flex-direction: column;
   background: var(--stage); color: var(--stage-ink); border-radius: var(--radius);
 }
-.eye-view { position: absolute; inset: 0; }
+.eye-view { position: relative; flex: 1; min-height: 0; }
+.eye-view[hidden] { display: none; }
+.stage-top { display: grid; gap: 8px; padding: 10px 16px 0; }
+.stage-row { display: flex; align-items: center; gap: 14px; }
+.ray-buttons { display: flex; gap: 6px; }
+.ray-buttons[hidden] { display: none; }
+.ray-button {
+  height: 30px; min-width: 44px; padding: 0 10px; border-radius: 6px; cursor: pointer;
+  font: 700 14px var(--font); color: var(--ink); background: var(--panel); border: 2px solid transparent;
+}
+.ray-button[aria-pressed="true"] { border-color: currentColor; }
+.ray-button--uv[aria-pressed="true"] { color: #5a2cc0; }
+.ray-button--ir[aria-pressed="true"] { color: #b8231a; }
 .eye-view canvas { display: block; cursor: grab; }
 .eye-view canvas:active { cursor: grabbing; }
 .eye-missing {
@@ -169,15 +191,12 @@ button { font: inherit; color: inherit; }
 }
 .eye-missing[hidden] { display: none; }
 .eye-note {
-  position: absolute; left: 50%; top: 48px; transform: translateX(-50%); margin: 0; padding: 8px 14px;
-  width: max-content; max-width: calc(100% - 32px); display: grid; gap: 4px; text-align: center;
+  margin: 0; padding: 6px 12px; justify-self: start; display: grid; gap: 2px;
   background: var(--panel); color: var(--ink); border-radius: var(--radius);
-  font-size: 16px; font-weight: 700; pointer-events: none;
+  font-size: 15px; font-weight: 700;
 }
 .eye-note[hidden] { display: none; }
-.stage-hint {
-  position: absolute; top: 12px; left: 16px; margin: 0; font-size: 15px; opacity: 0.85; pointer-events: none;
-}
+.stage-hint { margin: 0; font-size: 15px; opacity: 0.85; }
 
 /* 3D labels: a dot on the part, the name beside it */
 .eye-labels { position: absolute; inset: 0; pointer-events: none; }
