@@ -40,7 +40,7 @@ const CONE_BLUR = 1.6; // px of daytime blur for every 10× fewer cones than a h
 const DAZZLE = 0.45; // how washed out a very rod-heavy eye looks in daylight
 const GRAIN_LEVEL = 0.006; // grain strength at daylight with a 4 mm pupil
 const GRAIN_MAX = 0.3;
-const GRAIN_PX = 70; // grain strength in screen levels (0..255) at full grain
+const GRAIN_PX = 50; // grain strength in screen levels (0..255) at full grain on a white pixel
 
 // One fixed grain pattern, so the picture doesn't flicker between redraws.
 const NOISE = (() => {
@@ -232,11 +232,15 @@ export class SightRenderer {
       r = shoulder(r);
       gr = shoulder(gr);
       b = shoulder(b);
-      const noise = p.grain ? NOISE[i >> 2] * p.grain * GRAIN_PX : 0;
       // Amblyopia: the brain turns this eye's contrast down, toward a middle grey.
-      d[i] = MID_GREY + (linearToSrgb(r) - MID_GREY) * p.contrast + noise;
-      d[i + 1] = MID_GREY + (linearToSrgb(gr) - MID_GREY) * p.contrast + noise;
-      d[i + 2] = MID_GREY + (linearToSrgb(b) - MID_GREY) * p.contrast + noise;
+      const sr = MID_GREY + (linearToSrgb(r) - MID_GREY) * p.contrast;
+      const sg = MID_GREY + (linearToSrgb(gr) - MID_GREY) * p.contrast;
+      const sb = MID_GREY + (linearToSrgb(b) - MID_GREY) * p.contrast;
+      // Photon grain grows with the light that is there: lit things sparkle, black stays black.
+      const noise = p.grain ? NOISE[i >> 2] * p.grain * GRAIN_PX * Math.sqrt(Math.max(0, sr + sg + sb) / 765) : 0;
+      d[i] = sr + noise;
+      d[i + 1] = sg + noise;
+      d[i + 2] = sb + noise;
       d[i + 3] = 255;
     }
     this.work.getContext('2d').putImageData(img, 0, 0);
