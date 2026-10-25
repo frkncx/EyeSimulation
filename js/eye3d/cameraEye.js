@@ -3,10 +3,11 @@
 import * as THREE from 'three';
 import { rodsPerCone } from '../ui/settingsPanel.js';
 import { bandReach } from '../model/spectrum.js';
+import { CYLINDER_MAX_D } from '../model/optics.js';
 
 const R = 12; // human eye: about 24 mm across
 const AXIAL_STRETCH = 0.08; // eye length change at the strongest near- or farsightedness (drawn larger than life)
-const CORNEA_OVAL = 0.6; // extra dome height, top to bottom, at the strongest astigmatism
+const CORNEA_OVAL = 0.6; // extra dome height, along the steep direction, at the strongest astigmatism
 
 /** Lathe a profile around the eye's axis (lathe works around y, so turn y into +z). */
 function lathe(points, segments = 128) {
@@ -157,7 +158,7 @@ function rayArrow(part, points, color, faint) {
  */
 export function buildCameraEye({
   eyeSizeMm = 24, pupilMm = 4, pupilShape = 'round', focus = 1, retina = 'away', tapetum = 'off', irisColor = '#6b4a2e',
-  refraction = 0, astigmatism = 'off', astigmatismStrength = 0.5, eyeShape = 'round', rods = null,
+  refraction = 0, astigmatism = 'off', cylinderD = 1.5, axisDeg = 180, eyeShape = 'round', rods = null,
   peaks = null, lensCutoffNm = null, uvLens = 'none', rays = { uv: false, ir: false },
 } = {}) {
   const reach = bandReach({ peaks, lensCutoffNm, uvLens });
@@ -225,12 +226,16 @@ export function buildCameraEye({
   ];
   const corneaGeo = lathe(cornea);
   if (astigmatism === 'on') {
-    // Astigmatism: the dome bulges more top to bottom than side to side, like a rugby ball.
-    const bulge = CORNEA_OVAL * (0.15 + 0.85 * astigmatismStrength);
+    // Astigmatism: the dome bulges more in one direction, like a rugby ball. The steep direction is at a
+    // right angle to the prescription axis, measured counterclockwise as seen facing the eye
+    // (the viewer's right is +x). Axis 180 bulges top to bottom.
+    const bulge = (CORNEA_OVAL * cylinderD) / CYLINDER_MAX_D;
+    const steep = THREE.MathUtils.degToRad(axisDeg + 90);
+    const [dx, dy] = [Math.cos(steep), Math.sin(steep)];
     const pos = corneaGeo.attributes.position;
     for (let i = 0; i < pos.count; i++) {
       const x = pos.getX(i), y = pos.getY(i);
-      const up = x * x + y * y > 1e-6 ? (y * y) / (x * x + y * y) : 1;
+      const up = x * x + y * y > 1e-6 ? (x * dx + y * dy) ** 2 / (x * x + y * y) : 1;
       pos.setZ(i, limbusZ + (pos.getZ(i) - limbusZ) * (1 + bulge * up));
     }
     corneaGeo.computeVertexNormals();

@@ -61,6 +61,9 @@ function valueText(setting, value, settings) {
   if (setting.id === 'rods') return rodsText(value);
   // Written like a glasses prescription: myopia is minus, hyperopia plus.
   if (setting.id === 'refraction') return `${value > 0 ? '+' : value < 0 ? '−' : ''}${Math.abs(value * REFRACTION_MAX_D).toFixed(2)} D`;
+  if (setting.id === 'cylinderD') return `−${value.toFixed(2)} D`;
+  // Prescriptions write the axis from 1 to 180, so horizontal is 180, not 0.
+  if (setting.id === 'axisDeg') return `${value || 180}°`;
   if (setting.id.endsWith('Strength')) return strengthText(value);
   return `${value} ${setting.unit ?? ''}`.trim();
 }

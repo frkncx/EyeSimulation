@@ -4,6 +4,7 @@
 export const DEFOCUS_DISPLAY_GAIN = 4;
 
 export const REFRACTION_MAX_D = 4; // strongest myopia or hyperopia on the slider, in diopters
+export const CYLINDER_MAX_D = 3; // strongest astigmatism on the Cylinder slider, in diopters
 
 export const vergence = meters => (meters == null || !isFinite(meters) ? 0 : 1 / meters);
 

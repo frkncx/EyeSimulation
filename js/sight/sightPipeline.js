@@ -2,7 +2,7 @@
 //
 // Steps, in order:
 //   1. blur     each scene layer by its distance: focus and pupil (defocus), eye size (detail), pupil (diffraction),
-//               plus the vision problems (near/farsighted shift the focus, astigmatism blurs across, amblyopia everywhere)
+//               plus the vision problems (near/farsighted shift the focus, astigmatism blurs along its axis's right angle, amblyopia everywhere)
 //   2. light    day to night, pupil size and the night reflector change how bright it is; night fades color
 //   3. colors   1 to 3 colors simulated, 4 and 5 shown as made-up colors; UV and infrared, when the eye's
 //               range reaches them, added in stand-in colors (infrared a little blurrier, with body-heat noise)
@@ -30,10 +30,10 @@ export const BLIND_SPOT = {
 };
 
 const GLOW_LEVEL = 0.0008; // how bright lamps are compared with daylight
-const ASTIGMATISM_MAX_D = 3;
 // How much of the light drop still shows after the eye adapts: 0 = fully adapted, 1 = not at all.
 // At 0.6 a night without light sources is about 0.4% of day brightness: close to black, so only lamps stand out.
 const ADAPTATION = 0.6;
+const MAX_FOCUS_BLUR = 28; // px; the most blur from defocus or from astigmatism
 const AMBLYOPIA_BLUR = 3.5; // px; the brain's lost sharpness, the same at every distance
 const LUMA = [0.2126, 0.7152, 0.0722];
 const MID_GREY = 118;
@@ -100,8 +100,12 @@ export function sightParams(settings, light) {
   return {
     pupilW, pupilH, tapetum, night,
     focusM: eyeFocusD < 0.05 ? Infinity : 1 / eyeFocusD,
-    // An oval cornea focuses one direction (across) more strongly than the other.
-    cylinderD: settings.astigmatism === 'on' ? ASTIGMATISM_MAX_D * (0.15 + 0.85 * settings.astigmatismStrength) : 0,
+    // An oval cornea focuses its steep direction, at a right angle to the prescription axis, more strongly.
+    // The axis is measured as seen facing the eye, and the view looks out of it (mirrored), so in view
+    // coordinates (y down) the blur runs along (sin axis, -cos axis): axis 180 blurs up-down, 90 sideways.
+    cylinderD: settings.astigmatism === 'on' ? settings.cylinderD : 0,
+    cylinderDir: settings.astigmatism === 'on'
+      ? [Math.sin(settings.axisDeg * Math.PI / 180), -Math.cos(settings.axisDeg * Math.PI / 180)] : [1, 0],
     amblyopiaBlur: AMBLYOPIA_BLUR * amblyopia,
     contrast: 1 - 0.45 * amblyopia,
     exposure: illum ** ADAPTATION * sens,
@@ -137,6 +141,7 @@ export class SightRenderer {
     this.glow = createCanvas(VIEW_W, VIEW_H);
     this.work = createCanvas(VIEW_W, VIEW_H);
     this.squash = createCanvas(VIEW_W, VIEW_H);
+    this.turned = createCanvas(VIEW_W, VIEW_H); // the picture turned for slanted blur
     this.uv = createCanvas(VIEW_W, VIEW_H);
     this.ir = createCanvas(VIEW_W, VIEW_H);
     this.bands = new WeakMap(); // scene → each layer's UV and infrared pictures, made once
@@ -159,16 +164,16 @@ export class SightRenderer {
     ictx?.clearRect(0, 0, VIEW_W, VIEW_H);
 
     scene.layers.forEach((layer, k) => {
-      const [sx, sy] = blurFor(layer.distanceM, p);
+      const [along, across, angle] = blurFor(layer.distanceM, p);
       this.paint(ctx => layer.draw(ctx, p.light));
-      this.blurXY(bctx, sx, sy);
+      this.blurXY(bctx, along, across, angle);
       if (layer.glow) {
         this.paint(ctx => layer.glow(ctx, p.light));
-        this.blurXY(gctx, sx, sy);
+        this.blurXY(gctx, along, across, angle);
         anyGlow = true;
       }
-      if (uctx) this.blurXY(uctx, sx, sy, bands[k].uv);
-      if (ictx) this.blurXY(ictx, Math.hypot(sx, p.irBlur), Math.hypot(sy, p.irBlur), bands[k].ir);
+      if (uctx) this.blurXY(uctx, along, across, angle, bands[k].uv);
+      if (ictx) this.blurXY(ictx, Math.hypot(along, p.irBlur), Math.hypot(across, p.irBlur), angle, bands[k].ir);
     });
     gctx.globalCompositeOperation = 'source-over';
 
@@ -240,12 +245,13 @@ export class SightRenderer {
   }
 
   /**
-   * Blur a canvas (the layer canvas unless `src` is given) by sx across and sy up-down, and draw it onto ctx.
-   * Uneven blur (from a slit pupil) squeezes the picture along the blurrier side, blurs evenly, then stretches it back.
+   * Blur a canvas (the layer canvas unless `src` is given) into an oval, `along` at `angle` and `across` at a
+   * right angle to it, and draw it onto ctx. Uneven blur squeezes the picture along the blurrier side, blurs
+   * evenly, then stretches it back; at a slant the picture is turned first and turned back after.
    */
-  blurXY(ctx, sx, sy, src = this.layer) {
-    const hi = Math.max(sx, sy);
-    const lo = Math.max(1, Math.min(sx, sy));
+  blurXY(ctx, along, across, angle = 0, src = this.layer) {
+    const hi = Math.max(along, across);
+    const lo = Math.max(1, Math.min(along, across));
     if (hi < 0.3) {
       ctx.drawImage(src, 0, 0);
       return;
@@ -254,15 +260,39 @@ export class SightRenderer {
       drawBlurred(ctx, src, hi);
       return;
     }
+    const c = Math.abs(Math.cos(angle));
+    const s = Math.abs(Math.sin(angle));
+    if (s < 0.02 || c < 0.02) {
+      const [sx, sy] = s < 0.02 ? [along, across] : [across, along];
+      this.squashBlur(ctx, src, VIEW_W, VIEW_H, sx, sy, lo);
+      return;
+    }
+    const size = Math.ceil(Math.hypot(VIEW_W, VIEW_H));
+    const turned = this.turned;
+    turned.width = turned.height = size;
+    const tctx = turned.getContext('2d');
+    tctx.translate(size / 2, size / 2);
+    tctx.rotate(-angle);
+    tctx.drawImage(src, -VIEW_W / 2, -VIEW_H / 2);
+    ctx.save();
+    ctx.translate(VIEW_W / 2, VIEW_H / 2);
+    ctx.rotate(angle);
+    ctx.translate(-size / 2, -size / 2);
+    this.squashBlur(ctx, turned, size, size, along, across, lo);
+    ctx.restore();
+  }
+
+  /** Blur `src` (w × h) by sx across and sy up-down, the smaller of them being `lo`, and draw it onto ctx. */
+  squashBlur(ctx, src, w, h, sx, sy, lo) {
     const sq = this.squash;
-    sq.width = Math.max(1, Math.round(VIEW_W * (sx > sy ? lo / sx : 1)));
-    sq.height = Math.max(1, Math.round(VIEW_H * (sy > sx ? lo / sy : 1)));
+    sq.width = Math.max(1, Math.round(w * (sx > sy ? lo / sx : 1)));
+    sq.height = Math.max(1, Math.round(h * (sy > sx ? lo / sy : 1)));
     const qctx = sq.getContext('2d');
     qctx.imageSmoothingQuality = 'high';
     qctx.filter = `blur(${lo.toFixed(2)}px)`;
     qctx.drawImage(src, 0, 0, sq.width, sq.height);
     qctx.filter = 'none';
-    ctx.drawImage(sq, 0, 0, VIEW_W, VIEW_H);
+    ctx.drawImage(sq, 0, 0, w, h);
   }
 
   /** Brightness and colors, plus UV and infrared in their stand-in colors. Works per pixel in linear light. */
@@ -394,18 +424,34 @@ export class SightRenderer {
   }
 }
 
-/** Blur in view pixels for something at `distanceM`, across and up-down (they differ for slit pupils). */
+/**
+ * Blur in view pixels for something at `distanceM`, as an oval: [along, across, angle]. `along` is the long
+ * side, at `angle` (radians, view coordinates), `across` the short side. A slit pupil blurs more one way
+ * (across or up-down); astigmatism adds blur along its steep direction, at any slant.
+ */
 export function blurFor(distanceM, p) {
-  const axis = (pupilMm, cylinderD) => {
-    const defocus = Math.min(28, 0.5 * defocusBlurPx(distanceM, p.focusM, pupilMm, PX_PER_DEG));
-    const astigmatism = Math.min(28, 0.5 * dioptersBlurPx(cylinderD, pupilMm, PX_PER_DEG));
+  const axis = pupilMm => {
+    const defocus = Math.min(MAX_FOCUS_BLUR, 0.5 * defocusBlurPx(distanceM, p.focusM, pupilMm, PX_PER_DEG));
     const diffraction = 1.2 / pupilMm;
     // In the dark, rods pool their signals: more rods, blurrier.
     const night = 1.4 * p.night ** 2 * p.rodBlur;
     const scatter = p.tapetum ? 0.7 : 0;
-    return Math.hypot(defocus, astigmatism, diffraction, p.detailBlur, night, scatter, p.amblyopiaBlur, p.coneBlur);
+    return Math.hypot(defocus, diffraction, p.detailBlur, night, scatter, p.amblyopiaBlur, p.coneBlur);
   };
-  return [axis(p.pupilW, p.cylinderD), axis(p.pupilH, 0)];
+  const bx = axis(p.pupilW);
+  const by = axis(p.pupilH);
+  const [ux, uy] = p.cylinderDir;
+  // The pupil's width along the steep direction sets how much the astigmatism blurs.
+  const a = p.cylinderD
+    ? Math.min(MAX_FOCUS_BLUR, 0.5 * dioptersBlurPx(p.cylinderD, Math.hypot(p.pupilW * ux, p.pupilH * uy), PX_PER_DEG))
+    : 0;
+  // Add the two ovals (as spreads, like hypot does for circles), then find the long side and its angle.
+  const xx = bx * bx + a * a * ux * ux;
+  const yy = by * by + a * a * uy * uy;
+  const xy = a * a * ux * uy;
+  const mid = (xx + yy) / 2;
+  const half = Math.hypot((xx - yy) / 2, xy);
+  return [Math.sqrt(mid + half), Math.sqrt(Math.max(0, mid - half)), 0.5 * Math.atan2(2 * xy, xx - yy)];
 }
 
 const CHART_M = 6; // an eye chart is read from 20 feet, about 6 m
@@ -419,8 +465,8 @@ export function chartBlur(settings, light) {
   const errorD = (settings.refraction ?? 0) * REFRACTION_MAX_D;
   const nearestD = vergence(focusDistanceM(0));
   const d = Math.min(Math.max(vergence(CHART_M), -errorD, 0), nearestD - errorD);
-  const [sx, sy] = blurFor(CHART_M, { ...p, focusM: d < 0.05 ? Infinity : 1 / d });
-  return (sx + sy) / 2;
+  const [along, across] = blurFor(CHART_M, { ...p, focusM: d < 0.05 ? Infinity : 1 / d });
+  return (along + across) / 2;
 }
 
 /** No light sensors where the nerve leaves the eye: a gap in the picture. */
