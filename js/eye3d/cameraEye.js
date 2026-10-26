@@ -128,14 +128,39 @@ function pupilRadii(settings, scale, irisR) {
   return [Math.min(w / 2 / scale, irisR - 0.4), Math.min(h / 2 / scale, irisR - 0.4)];
 }
 
-/** Iris: a disc with a pupil-shaped hole. Texture coordinates span the whole disc. */
+/**
+ * Iris: a ring from the pupil's edge out to the iris's edge. Its fibers always start at the pupil's edge, as in a
+ * real iris, whatever the pupil's size and shape: the texture's fibered part (0.3 of its radius out to the edge)
+ * is laid from the pupil's edge to the iris's edge.
+ */
 function irisGeometry(rx, ry, irisR) {
-  const shape = new THREE.Shape().absarc(0, 0, irisR, 0, Math.PI * 2, false);
-  shape.holes.push(new THREE.Path().absellipse(0, 0, rx, ry, 0, Math.PI * 2, true));
-  const geo = new THREE.ShapeGeometry(shape, 64);
-  const pos = geo.attributes.position;
-  const uv = geo.attributes.uv;
-  for (let i = 0; i < pos.count; i++) uv.setXY(i, pos.getX(i) / (2 * irisR) + 0.5, pos.getY(i) / (2 * irisR) + 0.5);
+  const segments = 128;
+  const rings = 8;
+  const position = [];
+  const uv = [];
+  const index = [];
+  for (let j = 0; j <= rings; j++) {
+    const t = j / rings;
+    for (let i = 0; i <= segments; i++) {
+      const a = (i / segments) * Math.PI * 2;
+      const [c, s] = [Math.cos(a), Math.sin(a)];
+      position.push((rx + (irisR - rx) * t) * c, (ry + (irisR - ry) * t) * s, 0);
+      const r = 0.3 + 0.7 * t;
+      uv.push(0.5 + 0.5 * r * c, 0.5 + 0.5 * r * s);
+    }
+  }
+  for (let j = 0; j < rings; j++) {
+    for (let i = 0; i < segments; i++) {
+      const a = j * (segments + 1) + i;
+      const b = a + segments + 1;
+      index.push(a, b, a + 1, b, b + 1, a + 1); // facing forward (+z)
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setIndex(index);
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(position, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  geo.computeVertexNormals();
   return geo;
 }
 
