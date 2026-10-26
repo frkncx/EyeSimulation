@@ -15,7 +15,7 @@ import { defocusGapArcmin, dioptersGapArcmin, vergence, REFRACTION_MAX_D, facetA
 import { colorStep, shiftColors, ROD_WEIGHTS } from './colorVision.js';
 import { bandReach, UV_FROM_NM, IR_FROM_NM } from '../model/spectrum.js';
 import { focusDistanceM, rodsPerCone } from '../ui/settingsPanel.js';
-import { PUPIL_ASPECT, widestPupilMm, fitPupil } from '../eye3d/cameraEye.js';
+import { pupilSizeMm } from '../eye3d/cameraEye.js';
 import { SCENE_W, SCENE_H } from '../scenes/scenes.js';
 
 // The view's shape, and the size the canvas starts at. It is drawn at whatever size it is shown, with every
@@ -68,10 +68,6 @@ export function blindSpotInView(s, v = FULL_VIEW) {
 const GLOW_LEVEL = 0.0008; // how bright lamps are compared with daylight
 const TAPETUM_GAIN = 1.8;
 const SENS_POWER = 0.6; // brightness grows a little slower than pupil area
-// The pupil: a human one is about 4 mm in daylight (2–4 mm in sunshine) and opens to about 8 mm in the dark.
-// How far each shape can close, as a share of its widest area: round about 1/15, a slit 1/135
-// (Banks et al. 2015), a horizontal slit about 0.15 (octopus).
-const PUPIL_CLOSING = { round: 1 / 15, slit: 1 / 135, horizontal: 0.15 };
 // How much of the light drop still shows after the eye adapts: 0 = fully adapted, 1 = not at all.
 // At 0.6 a night without light sources is about 0.4% of day brightness: close to black, so only lamps stand out.
 const ADAPTATION = 0.6;
@@ -129,25 +125,12 @@ function noiseFor(count) {
 /** Everything the renderer needs, worked out once from the settings and the Light slider. */
 export function sightParams(settings, light) {
   if (settings.facets != null) return compoundParams(settings, light);
-  const [ax, ay] = PUPIL_ASPECT[settings.pupilShape] ?? PUPIL_ASPECT.round;
   const tapetum = settings.tapetum === 'on';
   const tapetumGain = tapetum ? TAPETUM_GAIN : 1;
   // Light falls 10 000 times from day to night; the eye adapts, but not all the way.
   const illum = 10 ** (-4 * (1 - light));
-  // The Pupil setting is the pupil's size in daylight; as the light fades it opens steadily to its widest.
-  // The widest is each animal's measured widest pupil (`darkPupilMm`), growing and shrinking with Eye size.
-  const widestMm = widestPupilMm(settings);
-  // Areas as width × height. Wide open, every pupil is round (a cat's slit, an octopus's bar);
-  // closed down it takes its own shape, and a slit can close the furthest.
-  const maxArea = widestMm ** 2;
-  const dayArea = Math.min(maxArea, settings.pupilMm ** 2 * ax * ay);
-  const darkness = -Math.log10(illum) / 4;
-  const closing = PUPIL_CLOSING[settings.pupilShape] ?? PUPIL_CLOSING.round;
-  const area = maxArea * Math.min(1, Math.max(closing, dayArea * (maxArea / dayArea) ** darkness / maxArea));
-  const opened = maxArea > dayArea ? Math.min(1, Math.max(0, Math.log(area / dayArea) / Math.log(maxArea / dayArea))) : 0;
-  const stretch = Math.sqrt(ax / ay) ** (1 - opened); // width ÷ height, square-rooted
-  // A slit is no longer than the widest the pupil opens; past that it widens, keeping its area.
-  const [pupilW, pupilH] = fitPupil(Math.sqrt(area) * stretch, Math.sqrt(area) / stretch, widestMm);
+  // The pupil at this light, the same one the 3D model draws.
+  const { w: pupilW, h: pupilH, area, maxArea } = pupilSizeMm(settings, light);
   const pupilScale = Math.sqrt(area / maxArea);
   const nightFor = s => Math.min(1, Math.max(0, -Math.log10(illum * s) / 4));
   const pupilSens = ((pupilW * pupilH) / 16) ** SENS_POWER * tapetumGain;

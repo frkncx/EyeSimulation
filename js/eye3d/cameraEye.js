@@ -92,13 +92,39 @@ export function fitPupil(w, h, widestMm) {
   return [w, h];
 }
 
+// The pupil: a human one is about 4 mm in daylight (2–4 mm in sunshine) and opens to about 8 mm in the dark.
+// How far each shape can close, as a share of its widest area: round about 1/15, a slit 1/135
+// (Banks et al. 2015), a horizontal slit about 0.15 (octopus).
+const PUPIL_CLOSING = { round: 1 / 15, slit: 1 / 135, horizontal: 0.15 };
+
+/**
+ * The pupil's width and height in mm at this light (0 = night, 1 = day), and its area and widest area in mm².
+ * The Pupil setting is its size in daylight; as the light fades it opens steadily to its widest.
+ * Its shape follows how open it is across its whole range: closed all the way, a slit or bar takes its own
+ * shape; wide open, every pupil is round (a dilated cat's pupil is roughly circular, Hammond & Mouat 1985,
+ * reviewed in Douglas 2018, Prog Retin Eye Res 66:17–48).
+ */
+export function pupilSizeMm(settings, light) {
+  const [ax, ay] = PUPIL_ASPECT[settings.pupilShape] ?? PUPIL_ASPECT.round;
+  const widestMm = widestPupilMm(settings);
+  const maxArea = widestMm ** 2;
+  const dayArea = Math.min(maxArea, settings.pupilMm ** 2 * ax * ay);
+  const closing = PUPIL_CLOSING[settings.pupilShape] ?? PUPIL_CLOSING.round;
+  // Opens evenly on a log scale as the light falls 10 000 times from day to night.
+  const area = maxArea * Math.min(1, Math.max(closing, dayArea * (maxArea / dayArea) ** (1 - light) / maxArea));
+  const opened = Math.log(area / maxArea / closing) / Math.log(1 / closing);
+  const stretch = Math.sqrt(ax / ay) ** (1 - opened); // width ÷ height, square-rooted
+  // A slit is no longer than the widest the pupil opens; past that it widens, keeping its area.
+  const [w, h] = fitPupil(Math.sqrt(area) * stretch, Math.sqrt(area) / stretch, widestMm);
+  return { w, h, area, maxArea };
+}
+
 /**
  * The daylight pupil's radii in model units (`scale` mm per unit). The model's iris is human-sized, so a pupil
  * wider than it is drawn just inside its edge.
  */
 function pupilRadii(settings, scale, irisR) {
-  const [ax, ay] = PUPIL_ASPECT[settings.pupilShape] ?? PUPIL_ASPECT.round;
-  const [w, h] = fitPupil(settings.pupilMm * ax, settings.pupilMm * ay, widestPupilMm(settings));
+  const { w, h } = pupilSizeMm(settings, 1);
   return [Math.min(w / 2 / scale, irisR - 0.4), Math.min(h / 2 / scale, irisR - 0.4)];
 }
 
