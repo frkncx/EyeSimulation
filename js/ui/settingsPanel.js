@@ -30,6 +30,7 @@ function rodsText(t) {
 /**
  * What the current type and example allow: their settings, slider limits, and choice options.
  * The example can only narrow what its type allows, never widen it, and can hide settings it doesn't have.
+ * Its `tips` add to a setting's hover text, such as where its values come from.
  */
 export function eyeConfig(type, example) {
   const hidden = example.hide ?? [];
@@ -37,6 +38,7 @@ export function eyeConfig(type, example) {
     key: `${type.id}/${example.id}`,
     settings: type.settings.filter(id => !hidden.includes(id)),
     allowed: { ...type.allowed, ...example.allowed },
+    tips: example.tips ?? {},
   };
 }
 
@@ -103,7 +105,7 @@ export function createSettings(root, data, onChange, place = 'settings') {
   const row = (s, eye) => `
       <section class="setting" data-row="${s.id}">
         <div class="setting-head">
-          <span class="setting-name" tabindex="0" data-tip="${escapeHtml(s.tip)}">${escapeHtml(s.label)}</span>
+          <span class="setting-name" tabindex="0" data-tip="${escapeHtml(eye.tips?.[s.id] ? `${s.tip} ${eye.tips[s.id]}` : s.tip)}">${escapeHtml(s.label)}</span>
           ${s.type === 'range' ? '<output class="setting-value"></output>' : ''}
         </div>
         ${s.type === 'range'
