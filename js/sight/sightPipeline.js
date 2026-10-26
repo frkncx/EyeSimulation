@@ -11,7 +11,7 @@
 // A compound eye blurs by its facets' acceptance angle instead (the same at every distance), skips the pupil,
 // glare and blind spot, and ends with a mosaic: one dot per facet.
 import { createCanvas, drawBlurred, supportsCanvasFilter, SRGB_TO_LINEAR, linearToSrgb } from './imageOps.js';
-import { defocusBlurArcmin, dioptersBlurArcmin, vergence, REFRACTION_MAX_D, facetAngle, facetAcceptance } from '../model/optics.js';
+import { defocusGapArcmin, dioptersGapArcmin, vergence, REFRACTION_MAX_D, facetAngle, facetAcceptance } from '../model/optics.js';
 import { colorStep, shiftColors, ROD_WEIGHTS } from './colorVision.js';
 import { bandReach, UV_FROM_NM, IR_FROM_NM } from '../model/spectrum.js';
 import { focusDistanceM, rodsPerCone } from '../ui/settingsPanel.js';
@@ -75,7 +75,16 @@ const PUPIL_CLOSING = { round: 1 / 15, slit: 1 / 135, horizontal: 0.15 };
 // How much of the light drop still shows after the eye adapts: 0 = fully adapted, 1 = not at all.
 // At 0.6 a night without light sources is about 0.4% of day brightness: close to black, so only lamps stand out.
 const ADAPTATION = 0.6;
-const AMBLYOPIA_BLUR = 3.5 * REF_ARCMIN_PER_PX; // arcmin (3.5 px of the old view); the brain's lost sharpness, the same at every distance
+// Amblyopia: how much worse the eye's finest gap gets, as a logMAR (log10 of the gap in arcminutes, 0 = 20/20)
+// at each end of the Severity slider's three bands, which match the slider's Mild, Moderate and Severe labels.
+// The bands are PEDIG's (Pediatric Eye Disease Investigator Group) amblyopia treatment study grades: moderate
+// 20/40-20/100, severe 20/125-20/400 (PEDIG 2006, Ophthalmology; pmc.ncbi.nlm.nih.gov/articles/PMC1609192),
+// mild better than 20/40. Within a band the logMAR grows evenly with the slider.
+const AMBLYOPIA_BANDS = [
+  { from: 0, to: 0.34, logMar: [0, Math.log10(40 / 20)] }, // Mild: 20/20 up to 20/40
+  { from: 0.34, to: 0.67, logMar: [Math.log10(40 / 20), Math.log10(100 / 20)] }, // Moderate: 20/40-20/100
+  { from: 0.67, to: 1, logMar: [Math.log10(125 / 20), Math.log10(400 / 20)] }, // Severe: 20/125-20/400
+];
 const LUMA = [0.2126, 0.7152, 0.0722];
 const MID_GREY = 118;
 const HUMAN_RODS_PER_CONE = 20;
@@ -84,11 +93,6 @@ const HUMAN_RODS_PER_CONE = 20;
 // sensors) and coarsens as rods crowd out cones. The view draws all blur at true size; zooming in shows the
 // finer differences.
 const HUMAN_CPD = 30;
-// The sharpness readout keeps the sums it had when the view was 640 pixels and drew focus blur 4 times larger
-// than life: its focus and astigmatism blur is that drawing size read as arcminutes (about 0.71× true size),
-// and its amblyopia blur the old 3.5 px read as arcminutes.
-const READOUT_FOCUS_SCALE = 4 / REF_ARCMIN_PER_PX;
-const READOUT_AMBLYOPIA_SCALE = 1 / REF_ARCMIN_PER_PX;
 // A gaussian blur this wide (its standard deviation) per arcminute of finest gap: at that width a grating of
 // that gap keeps about 5% of its contrast, near the limit of seeing it.
 const SIGMA_PER_GAP = 0.78;
@@ -185,7 +189,8 @@ export function sightParams(settings, light) {
     cylinderD: settings.astigmatism === 'on' ? settings.cylinderD : 0,
     cylinderDir: settings.astigmatism === 'on'
       ? [Math.sin(settings.axisDeg * Math.PI / 180), -Math.cos(settings.axisDeg * Math.PI / 180)] : [1, 0],
-    amblyopiaBlur: AMBLYOPIA_BLUR * amblyopia,
+    // The brain's lost sharpness, the same at every distance: the eye's finest gap times this.
+    amblyopiaFactor: settings.amblyopia === 'on' ? 10 ** amblyopiaLogMar(amblyopia) : 1,
     contrast: 1 - 0.45 * amblyopia,
     exposure: illum ** ADAPTATION * sens,
     glowGain: GLOW_LEVEL * illum ** -0.78 * sens,
@@ -237,7 +242,7 @@ function compoundParams(settings, light) {
     // The finest gap it makes out: one facet apart, or wider when each facet's view is blurrier than that.
     detailArcmin: Math.max(spacingDeg, acceptDeg) * 60,
     pupilW: 4, pupilH: 4, pupilScale: 1, tapetum: false, night,
-    focusM: Infinity, cylinderD: 0, cylinderDir: [1, 0], amblyopiaBlur: 0, contrast: 1,
+    focusM: Infinity, cylinderD: 0, cylinderDir: [1, 0], amblyopiaFactor: 1, contrast: 1,
     exposure: illum ** ADAPTATION,
     glowGain: GLOW_LEVEL * illum ** -0.78,
     fineArcmin: 0, rodBlur: 1, coneFade: 0, dazzle: 0, purkinje: false, coneNight: night,
@@ -588,27 +593,31 @@ export class SightRenderer {
  * Blur in arcminutes for something at `distanceM`, as an oval: [along, across, angle]. `along` is the long
  * side, at `angle` (radians, view coordinates), `across` the short side. A slit pupil blurs more one way
  * (across or up-down); astigmatism adds blur along its steep direction, at any slant.
- * The view draws it at true size; the eye-chart readout (`p.chart`) keeps its older sums (READOUT_*).
+ * The view draws it at true size; for the eye-chart readout (`p.chart`) the focus, detail and amblyopia parts
+ * are the finest gaps themselves.
  */
 export function blurFor(distanceM, p) {
-  const focusScale = p.chart ? READOUT_FOCUS_SCALE : 1;
+  // Finest gaps (focus, detail, amblyopia) are drawn as a blur SIGMA_PER_GAP wide per arcminute; the readout
+  // takes the gaps themselves, so the picture and the readout come from the same numbers.
+  const gap = p.chart ? 1 : SIGMA_PER_GAP;
+  // Amblyopia multiplies the eye's finest gap; as a gap added to it (gaps add as squares) that is this much.
+  const amblyopia = p.fineArcmin * Math.sqrt(p.amblyopiaFactor ** 2 - 1);
   const axis = pupilMm => {
-    const defocus = 0.5 * defocusBlurArcmin(distanceM, p.focusM, pupilMm) * focusScale;
+    const defocus = defocusGapArcmin(distanceM, p.focusM, pupilMm);
     // Light spreading through the pupil (diffraction), about 2.3 arcminutes ÷ pupil width in mm.
-    const fine = Math.hypot(p.fineArcmin, 2.3 / pupilMm) * (p.chart ? 1 : SIGMA_PER_GAP);
+    const fine = Math.hypot(p.fineArcmin, 2.3 / pupilMm);
     // In the dark, rods pool their signals: more rods, blurrier (a human at night: about 20/160).
     const night = 1.4 * p.night ** 2 * p.rodBlur * REF_ARCMIN_PER_PX;
     // A night reflector scatters light sideways a little.
     const scatter = (p.tapetum ? 0.7 : 0) * REF_ARCMIN_PER_PX;
-    const amblyopia = p.amblyopiaBlur * (p.chart ? READOUT_AMBLYOPIA_SCALE : 1);
-    return Math.hypot(defocus, fine, night, scatter, amblyopia);
+    return Math.hypot(Math.hypot(defocus, fine, amblyopia) * gap, night, scatter);
   };
   const bx = axis(p.pupilW);
   const by = axis(p.pupilH);
   const [ux, uy] = p.cylinderDir;
   // The pupil's width along the steep direction sets how much the astigmatism blurs.
   const a = p.cylinderD
-    ? 0.5 * dioptersBlurArcmin(p.cylinderD, Math.hypot(p.pupilW * ux, p.pupilH * uy)) * focusScale
+    ? dioptersGapArcmin(p.cylinderD, Math.hypot(p.pupilW * ux, p.pupilH * uy)) * gap
     : 0;
   // Add the two ovals (as spreads, like hypot does for circles), then find the long side and its angle.
   const xx = bx * bx + a * a * ux * ux;
@@ -793,6 +802,13 @@ function mosaic(ctx, spacing, view) {
 function shoulder(x) {
   if (x <= 0.8) return x < 0 ? 0 : x;
   return 0.8 + 0.2 * (1 - Math.exp(-(x - 0.8) / 0.2));
+}
+
+/** Amblyopia's logMAR at slider `strength` (0..1), from the PEDIG bands. */
+function amblyopiaLogMar(strength) {
+  const band = AMBLYOPIA_BANDS.find(b => strength < b.to) ?? AMBLYOPIA_BANDS[AMBLYOPIA_BANDS.length - 1];
+  const t = (strength - band.from) / (band.to - band.from);
+  return band.logMar[0] + (band.logMar[1] - band.logMar[0]) * Math.min(1, Math.max(0, t));
 }
 
 function smoothstep(a, b, x) {
