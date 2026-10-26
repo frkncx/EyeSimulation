@@ -16,6 +16,7 @@ import { colorStep, shiftColors, ROD_WEIGHTS } from './colorVision.js';
 import { bandReach, UV_FROM_NM, IR_FROM_NM } from '../model/spectrum.js';
 import { focusDistanceM, rodsPerCone } from '../ui/settingsPanel.js';
 import { pupilSizeMm } from '../eye3d/cameraEye.js';
+import { TUNING } from '../constants.js';
 import { SCENE_W, SCENE_H } from '../scenes/scenes.js';
 
 // The view's shape, and the size the canvas starts at. It is drawn at whatever size it is shown, with every
@@ -133,7 +134,13 @@ export function sightParams(settings, light) {
   const { w: pupilW, h: pupilH, area, maxArea } = pupilSizeMm(settings, light);
   const pupilScale = Math.sqrt(area / maxArea);
   const nightFor = s => Math.min(1, Math.max(0, -Math.log10(illum * s) / 4));
-  const pupilSens = ((pupilW * pupilH) / 16) ** SENS_POWER * tapetumGain;
+  // In daylight the eye adapts to the light its own daylight pupil lets in, so every eye's daylight view is
+  // normally exposed: the daylight pupil's size and the night reflector change sharpness, not brightness.
+  // As the light falls that adaptation fades, and the widest pupil, rods and reflector set the brightness.
+  const daylight = pupilSizeMm(settings, 1);
+  const daySens = ((daylight.w * daylight.h) / 16) ** SENS_POWER * tapetumGain;
+  const adapted = daySens ** -(light ** TUNING.DAY_ADAPTATION_POWER);
+  const pupilSens = ((pupilW * pupilH) / 16) ** SENS_POWER * tapetumGain * adapted;
   // Rods and cones (eyes without them keep the plain model). Rods add sensitivity once the light is dim;
   // an eye with fewer cones than a human's is less sharp and less colorful in daylight, and a very
   // rod-heavy one is dazzled by bright light. All simplified.
