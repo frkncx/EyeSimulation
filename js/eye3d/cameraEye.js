@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { rodsPerCone } from '../ui/settingsPanel.js';
 import { bandReach } from '../model/spectrum.js';
 import { CYLINDER_MAX_D } from '../model/optics.js';
+import { MEASURED, TUNING } from '../model/constants.js';
 
 const R = 12; // human eye: about 24 mm across
 const AXIAL_STRETCH = 0.08; // eye length change at the strongest near- or farsightedness (drawn larger than life)
@@ -70,8 +71,8 @@ const textureCache = new Map();
 // It saves the width a round eye would need around its middle.
 const TUBE = { backR: 10.5, center: -1.5, rim: 7.2, limbusZ: 9.5, corneaR: 9, iris: 6.9, lens: 5.3, lensDepth: 1.15 };
 
-/** Width and height of each pupil shape, relative to a round pupil of the same size. */
-export const PUPIL_ASPECT = { round: [1, 1], slit: [0.35, 1.3], horizontal: [1.3, 0.4] };
+/** Width and height of each pupil shape, relative to a round pupil of the same size (in constants.js). */
+export const { PUPIL_ASPECT } = TUNING;
 
 /**
  * The widest this eye's pupil opens, in mm: the animal's measured widest (`darkPupilMm`, at its own eye size
@@ -93,9 +94,8 @@ export function fitPupil(w, h, widestMm) {
 }
 
 // The pupil: a human one is about 4 mm in daylight (2–4 mm in sunshine) and opens to about 8 mm in the dark.
-// How far each shape can close, as a share of its widest area: round about 1/15, a slit 1/135
-// (Banks et al. 2015), a horizontal slit about 0.15 (octopus).
-const PUPIL_CLOSING = { round: 1 / 15, slit: 1 / 135, horizontal: 0.15 };
+// How far each shape can close, as a share of its widest area (PUPIL_CLOSING, in constants.js).
+const { PUPIL_CLOSING } = MEASURED;
 
 /**
  * The pupil's width and height in mm at this light (0 = night, 1 = day), and its area and widest area in mm².

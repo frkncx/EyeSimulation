@@ -1,5 +1,9 @@
 // How many color channels the eye has, as a 3×3 matrix on linear RGB, or a made-up color shift.
 import { sensitivity, effectivePeaks, BAR_MIN, BAR_MAX } from '../model/spectrum.js';
+import { TUNING } from '../model/constants.js';
+
+// What each of these does is in js/model/constants.js.
+const { PRIMARIES, LENS_YELLOW, HUMAN, FLOOR, FLOOR_SOFT, UV_SENSOR_NM, ROD_PEAK } = TUNING;
 
 const LUMA = [0.2126, 0.7152, 0.0722];
 
@@ -11,11 +15,8 @@ const LUMA = [0.2126, 0.7152, 0.0722];
 // A normal human gives back exactly what went in; any other set of sensors shows what it tells apart.
 
 const WAVES = Array.from({ length: (BAR_MAX - BAR_MIN) / 5 + 1 }, (_, i) => BAR_MIN + 5 * i);
-// A screen's red, green and blue as bands of light: [peak nm, width nm]. Fitted so that the human
-// and red-green deficiency results come out close to Machado et al. (2009).
-const PRIMARIES = [[618, 23], [535, 49], [431, 19]];
-const LENS_YELLOW = 0.7; // how strongly a UV-blocking lens also dims blue light (it is slightly yellow)
-const HUMAN = { peaks: [420, 530, 560], lensCutoffNm: 400 };
+// A screen's red, green and blue are bands of light (PRIMARIES), fitted so that the human and red-green
+// deficiency results come out close to Machado et al. (2009).
 
 /** How much light at `nm` gets through the lens: a soft cutoff plus a yellow tint below 480 nm. */
 const lensPass = (nm, cutoff) => (cutoff
@@ -44,7 +45,6 @@ const HUMAN_WHITE = channelsOf(...HUMAN_ROWS).map(sum);
 const HUMAN_SHORT_WHITE = sum(HUMAN_ROWS[0]);
 // Keeps a channel's scale from collapsing: never far below the human's (a smooth floor, so colors
 // don't jump while a peak is dragged).
-const FLOOR = 0.8, FLOOR_SOFT = 0.08;
 const floored = r => FLOOR + FLOOR_SOFT * Math.log(1 + Math.exp((r - FLOOR) / FLOOR_SOFT));
 
 /**
@@ -88,9 +88,6 @@ const mul3 = (p, q) => Array.from({ length: 9 }, (_, k) => {
 
 const HUMAN_INVERSE = invert3(opponent(HUMAN.peaks, HUMAN.lensCutoffNm));
 
-const UV_SENSOR_NM = 380; // a bluest sensor peaking below this is an ultraviolet sensor
-
-const ROD_PEAK = 498; // nm; rods are most sensitive to blue-green light
 /** How much rods respond to the screen's red, green and blue, scaled so white gives 1. */
 export const ROD_WEIGHTS = (() => {
   const [row] = sensorRows([ROD_PEAK], null);
