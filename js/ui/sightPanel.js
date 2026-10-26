@@ -2,7 +2,7 @@
 // and below it the eye's own settings that belong with the scene (Focus), filled in by main.js.
 import { escapeHtml } from './glossary.js';
 import { SCENES, imageScene, drawPlain } from '../scenes/scenes.js';
-import { SightRenderer, sightParams, smallestDetail, VIEW_W, VIEW_H } from '../sight/sightPipeline.js';
+import { SightRenderer, sightParams, smallestDetail, blindSpotInView, fitView, FULL_VIEW, VIEW_W, VIEW_H } from '../sight/sightPipeline.js';
 
 const THUMB_W = 128;
 const THUMB_H = 80;
@@ -20,6 +20,14 @@ const DETAIL_TIP = 'The finest gap this eye can make out. A typical human eye ma
 
 const ENLARGE_TIP = 'Show the view large, over the 3D eye, so you can change settings while looking closely. Esc goes back.';
 const SHRINK_TIP = 'Put the view back in this panel.';
+
+// Zoom narrows the 60° view and draws it again at the view's size, so fine detail shows at true size.
+// Zoomed in, dragging the view looks around the rest of it.
+const ZOOMS = [
+  { zoom: 1, tip: 'The whole view, 60° across.' },
+  { zoom: 2, tip: '30° of the view, drawn again at full size: detail is shown as it really is. Drag to look around.' },
+  { zoom: 4, tip: '15° of the view, drawn again at full size: detail is shown as it really is. Drag to look around.' },
+];
 
 const lightText = v => (v >= 0.8 ? 'Day' : v >= 0.55 ? 'Dim' : v >= 0.3 ? 'Dusk' : 'Night');
 
@@ -55,7 +63,13 @@ export function createSight(root, { parts, defaultsOf, bigOver, onScene, onLight
       <canvas width="${VIEW_W}" height="${VIEW_H}" aria-label="The scene as this eye sees it"></canvas>
       <span class="sight-tag sight-tag--blind" tabindex="0" data-tip="${escapeHtml(parts.blindSpot.tip)}">blind spot</span>
       <span class="sight-tag sight-tag--made-up" tabindex="0" data-tip="${escapeHtml(MADE_UP_TIP)}">False color</span>
-      <button type="button" class="sight-enlarge" aria-pressed="false" data-tip="${escapeHtml(ENLARGE_TIP)}">Enlarge</button>
+      <div class="sight-tools">
+        <div class="sight-zoom" role="group" aria-label="Zoom">
+          ${ZOOMS.map(z => `<button type="button" data-zoom="${z.zoom}" aria-pressed="${z.zoom === 1}"
+            data-tip="${escapeHtml(z.tip)}">${z.zoom}×</button>`).join('')}
+        </div>
+        <button type="button" class="sight-enlarge" aria-pressed="false" data-tip="${escapeHtml(ENLARGE_TIP)}">Enlarge</button>
+      </div>
       <div class="sight-notes"></div>
       <p class="sight-missing" hidden></p>
     </div>
@@ -153,14 +167,73 @@ export function createSight(root, { parts, defaultsOf, bigOver, onScene, onLight
   const renderer = new SightRenderer();
   let pending = null;
   let thumbFor = null;
+  let shown = FULL_VIEW; // the part of the view shown: zoom, and where it is centered
+  let blindSpot = null; // this eye's blind spot at 1× zoom, for placing its tag
 
   // Drawing waits for the next frame, so a dragged slider redraws at most once per frame.
+  const redraw = () => { if (current) pending ??= requestAnimationFrame(draw); };
+
+  // The scene is drawn at the view's own size in screen pixels, not stretched from a smaller picture.
   function draw() {
     pending = null;
     const s = current;
+    const w = Math.round(view.clientWidth * (window.devicePixelRatio || 1));
+    const h = Math.round(w * VIEW_H / VIEW_W);
+    if (w > 0 && (view.width !== w || view.height !== h)) {
+      view.width = w;
+      view.height = h;
+    }
     const scene = s.sceneId === 'own' && s.ownImage ? imageScene(s.ownImage) : SCENES.find(x => x.id === s.sceneId);
-    renderer.render(view, scene, sightParams(s.settings, s.light));
+    renderer.render(view, scene, sightParams(s.settings, s.light), shown);
   }
+  new ResizeObserver(redraw).observe(view);
+
+  /** The blind spot's tag: under the spot, or above it when it reaches the bottom of the view; hidden when zoomed out of sight. */
+  function placeBlindTag() {
+    const spot = blindSpotInView(blindSpot, shown);
+    blindTag.hidden = !spot;
+    if (!spot) return;
+    const below = spot.y + spot.ry < 0.85;
+    blindTag.style.left = `${Math.min(92, Math.max(8, spot.x * 100))}%`;
+    blindTag.style.top = `${(below ? Math.max(0, spot.y + spot.ry) * 100 + 2 : (spot.y - spot.ry) * 100 - 10)}%`;
+  }
+
+  const zoomButtons = root.querySelectorAll('[data-zoom]');
+  root.querySelector('.sight-zoom').addEventListener('click', e => {
+    const btn = e.target.closest('[data-zoom]');
+    if (!btn) return;
+    shown = fitView({ ...shown, zoom: Number(btn.dataset.zoom) });
+    for (const b of zoomButtons) b.setAttribute('aria-pressed', String(b === btn));
+    viewBox.classList.toggle('sight-view--zoomed', shown.zoom > 1);
+    placeBlindTag();
+    redraw();
+  });
+
+  // Zoomed in, dragging moves the picture with the pointer.
+  let dragFrom = null;
+  view.addEventListener('pointerdown', e => {
+    if (shown.zoom === 1) return;
+    dragFrom = { x: e.clientX, y: e.clientY, shown };
+    view.setPointerCapture(e.pointerId);
+    viewBox.classList.add('sight-view--dragging');
+  });
+  view.addEventListener('pointermove', e => {
+    if (!dragFrom) return;
+    const { zoom, x, y } = dragFrom.shown;
+    shown = fitView({
+      zoom,
+      x: x - (e.clientX - dragFrom.x) / (view.clientWidth * zoom),
+      y: y - (e.clientY - dragFrom.y) / (view.clientHeight * zoom),
+    });
+    placeBlindTag();
+    redraw();
+  });
+  const endDrag = () => {
+    dragFrom = null;
+    viewBox.classList.remove('sight-view--dragging');
+  };
+  view.addEventListener('pointerup', endDrag);
+  view.addEventListener('pointercancel', endDrag);
 
   return {
     /** Redraw for this state (`built` is false for eyes that aren't made yet). */
@@ -180,6 +253,7 @@ export function createSight(root, { parts, defaultsOf, bigOver, onScene, onLight
       view.style.visibility = built ? '' : 'hidden';
       sharpness.hidden = !built;
       if (!built) {
+        blindSpot = null;
         blindTag.hidden = madeUpTag.hidden = true;
         viewNotes.innerHTML = '';
         return;
@@ -188,13 +262,8 @@ export function createSight(root, { parts, defaultsOf, bigOver, onScene, onLight
       // A compound eye's finest detail comes straight from its facets; a camera eye's from its measured acuity.
       const text = sharpnessText(smallestDetail(s.settings, s.light, defaultsOf(s.exampleId)));
       for (const dd of sharpness.querySelectorAll('[data-sharpness]')) dd.textContent = text[dd.dataset.sharpness];
-      blindTag.hidden = !p.blindSpot;
-      if (p.blindSpot) {
-        // Under the spot, or above it when it reaches the bottom of the view.
-        const below = p.blindSpot.y + p.blindSpot.ry < 0.85;
-        blindTag.style.left = `${Math.min(92, Math.max(8, p.blindSpot.x * 100))}%`;
-        blindTag.style.top = `${(below ? Math.max(0, p.blindSpot.y + p.blindSpot.ry) * 100 + 2 : (p.blindSpot.y - p.blindSpot.ry) * 100 - 10)}%`;
-      }
+      blindSpot = p.blindSpot;
+      placeBlindTag();
       const shift = p.color?.kind === 'shift' ? p.color.channels : 0;
       // UV or infrared reaching the eye, in a scene that has them (photos don't; underwater has no infrared).
       const photo = s.sceneId === 'own';

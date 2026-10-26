@@ -11,17 +11,20 @@
 // A compound eye blurs by its facets' acceptance angle instead (the same at every distance), skips the pupil,
 // glare and blind spot, and ends with a mosaic: one dot per facet.
 import { createCanvas, drawBlurred, supportsCanvasFilter, SRGB_TO_LINEAR, linearToSrgb } from './imageOps.js';
-import { defocusBlurPx, dioptersBlurPx, vergence, DEFOCUS_DISPLAY_GAIN, REFRACTION_MAX_D, facetAngle, facetAcceptance } from '../model/optics.js';
+import { defocusBlurArcmin, dioptersBlurArcmin, vergence, REFRACTION_MAX_D, facetAngle, facetAcceptance } from '../model/optics.js';
 import { colorStep, shiftColors, ROD_WEIGHTS } from './colorVision.js';
 import { bandReach, UV_FROM_NM, IR_FROM_NM } from '../model/spectrum.js';
 import { focusDistanceM, rodsPerCone } from '../ui/settingsPanel.js';
 import { PUPIL_ASPECT } from '../eye3d/cameraEye.js';
 import { SCENE_W, SCENE_H } from '../scenes/scenes.js';
 
+// The view's shape, and the size the canvas starts at. It is drawn at whatever size it is shown, with every
+// blur worked out in angles and turned into pixels for that size and zoom.
 export const VIEW_W = 640;
 export const VIEW_H = 400;
-const FIELD_DEG = 60; // the view spans 60° across
-const PX_PER_DEG = VIEW_W / FIELD_DEG;
+const FIELD_DEG = 60; // the view spans 60° across at 1× zoom
+// Sizes tuned by eye on the old 640-pixel view (glare, haze, night blur…) are kept as the angles they covered there.
+const REF_ARCMIN_PER_PX = 60 * FIELD_DEG / VIEW_W; // 5.625
 
 // Where the blind spot falls, in degrees from the center: out to the side (toward the ear; negative is toward
 // the nose), down (negative is up), and its width and height. A human's is 15° out and a little below.
@@ -29,13 +32,38 @@ const PX_PER_DEG = VIEW_W / FIELD_DEG;
 const HUMAN_BLIND_SPOT = { outDeg: 15, downDeg: 1.5, wDeg: 5.5, hDeg: 7.5 };
 const FIELD_H_DEG = FIELD_DEG * VIEW_H / VIEW_W;
 
-/** The blind spot as fractions of the view: center x, y and radii rx, ry. */
+/** The blind spot as fractions of the view at 1× zoom: center x, y and radii rx, ry. */
 const blindSpotFor = ({ outDeg, downDeg, wDeg, hDeg } = HUMAN_BLIND_SPOT) => ({
   x: 0.5 + outDeg / FIELD_DEG,
   y: 0.5 + downDeg / FIELD_H_DEG,
   rx: wDeg / 2 / FIELD_DEG,
   ry: hDeg / 2 / FIELD_H_DEG,
 });
+
+/**
+ * The part of the eye's 60° view that is shown: zoomed in `zoom` times on the point x, y (fractions of the whole
+ * view; 0.5, 0.5 is its middle). Dragging moves x and y; they stay where the shown part fits inside the view.
+ */
+export const FULL_VIEW = { zoom: 1, x: 0.5, y: 0.5 };
+
+export function fitView({ zoom, x, y }) {
+  const half = 0.5 / zoom;
+  return { zoom, x: Math.min(1 - half, Math.max(half, x)), y: Math.min(1 - half, Math.max(half, y)) };
+}
+
+/** A point of the whole view (fractions) as fractions of the shown part. */
+const shownAt = (v, fx, fy) => [0.5 + (fx - v.x) * v.zoom, 0.5 + (fy - v.y) * v.zoom];
+
+/**
+ * The blind spot as fractions of the shown part, or null when it is out of sight. It belongs to the eye's view,
+ * so it moves with the picture when zoomed in and dragged.
+ */
+export function blindSpotInView(s, v = FULL_VIEW) {
+  if (!s) return null;
+  const [x, y] = shownAt(v, s.x, s.y);
+  const z = { x, y, rx: s.rx * v.zoom, ry: s.ry * v.zoom };
+  return z.x + z.rx < 0 || z.x - z.rx > 1 || z.y + z.ry < 0 || z.y - z.ry > 1 ? null : z;
+}
 
 const GLOW_LEVEL = 0.0008; // how bright lamps are compared with daylight
 const TAPETUM_GAIN = 1.8;
@@ -47,17 +75,20 @@ const PUPIL_CLOSING = { round: 1 / 15, slit: 1 / 135, horizontal: 0.15 };
 // How much of the light drop still shows after the eye adapts: 0 = fully adapted, 1 = not at all.
 // At 0.6 a night without light sources is about 0.4% of day brightness: close to black, so only lamps stand out.
 const ADAPTATION = 0.6;
-const AMBLYOPIA_BLUR = 3.5; // px; the brain's lost sharpness, the same at every distance
+const AMBLYOPIA_BLUR = 3.5 * REF_ARCMIN_PER_PX; // arcmin (3.5 px of the old view); the brain's lost sharpness, the same at every distance
 const LUMA = [0.2126, 0.7152, 0.0722];
 const MID_GREY = 118;
 const HUMAN_RODS_PER_CONE = 20;
 // Sharpness. Each eye's finest detail comes from its measured acuity in cycles per degree (`acuityCpd` in its
 // defaults); 30 is the 20/20 standard, a 1-arcminute gap. It scales with eye size (a bigger image over the same
-// sensors) and coarsens as rods crowd out cones. One view pixel is about 5.6 arcminutes, so at true size most
-// differences wouldn't show: the view draws it 4 times larger than life, like the blur from focusing errors
-// (the readout uses the true size). Astigmatism and amblyopia blur is drawn larger than life too.
+// sensors) and coarsens as rods crowd out cones. The view draws all blur at true size; zooming in shows the
+// finer differences.
 const HUMAN_CPD = 30;
-const ARCMIN_PER_PX = 60 / PX_PER_DEG;
+// The sharpness readout keeps the sums it had when the view was 640 pixels and drew focus blur 4 times larger
+// than life: its focus and astigmatism blur is that drawing size read as arcminutes (about 0.71× true size),
+// and its amblyopia blur the old 3.5 px read as arcminutes.
+const READOUT_FOCUS_SCALE = 4 / REF_ARCMIN_PER_PX;
+const READOUT_AMBLYOPIA_SCALE = 1 / REF_ARCMIN_PER_PX;
 // A gaussian blur this wide (its standard deviation) per arcminute of finest gap: at that width a grating of
 // that gap keeps about 5% of its contrast, near the limit of seeing it.
 const SIGMA_PER_GAP = 0.78;
@@ -73,18 +104,23 @@ const UV_GREY = greyOf(UV_COLOR);
 const IR_GREY = greyOf(IR_COLOR);
 const UV_STRENGTH = 1.1;
 const IR_STRENGTH = 0.5;
-const IR_BLUR = 2.4; // px of extra blur on infrared at full reach, with a 4 mm pupil
+const IR_BLUR = 2.4 * REF_ARCMIN_PER_PX; // arcmin (2.4 px of the old view) of extra blur on infrared at full reach, with a 4 mm pupil
 const IR_NOISE_PX = 5; // body-heat noise in screen levels, soft and low-contrast
 const COLD_BLOODED_NOISE = 0.35;
 
-// One fixed grain pattern, so the picture doesn't flicker between redraws.
-const NOISE = (() => {
-  const n = new Float32Array(VIEW_W * VIEW_H);
+const GLARE_BLUR = 10 * REF_ARCMIN_PER_PX; // arcmin (10 px of the old view): how far the glare haze spreads
+const TUBE_EDGE_BLUR = 6 * REF_ARCMIN_PER_PX; // arcmin (6 px of the old view): how soft a tube eye's far corners go
+
+// One fixed grain pattern per view size (one value per pixel), so the picture doesn't flicker between redraws.
+let noise = new Float32Array(0);
+function noiseFor(count) {
+  if (noise.length === count) return noise;
+  noise = new Float32Array(count);
   let seed = 12345;
   const rand = () => ((seed = (seed * 1103515245 + 12345) >>> 0) / 4294967296);
-  for (let i = 0; i < n.length; i++) n[i] = (rand() + rand() + rand() - 1.5) * 2;
-  return n;
-})();
+  for (let i = 0; i < noise.length; i++) noise[i] = (rand() + rand() + rand() - 1.5) * 2;
+  return noise;
+}
 
 /** Everything the renderer needs, worked out once from the settings and the Light slider. */
 export function sightParams(settings, light) {
@@ -197,7 +233,7 @@ function compoundParams(settings, light) {
   const uv = reach.uv ? smoothstep(UV_FROM_NM, 320, reach.lo) : 0;
   const ir = reach.ir ? smoothstep(IR_FROM_NM, 790, reach.hi) : 0;
   return {
-    compound: { spacingPx: spacingDeg * PX_PER_DEG, blurPx: acceptDeg * PX_PER_DEG * FWHM_TO_SIGMA },
+    compound: { spacingDeg, blurArcmin: acceptDeg * 60 * FWHM_TO_SIGMA },
     // The finest gap it makes out: one facet apart, or wider when each facet's view is blurrier than that.
     detailArcmin: Math.max(spacingDeg, acceptDeg) * 60,
     pupilW: 4, pupilH: 4, pupilScale: 1, tapetum: false, night,
@@ -226,14 +262,40 @@ export class SightRenderer {
     this.turned = createCanvas(VIEW_W, VIEW_H); // the picture turned for slanted blur
     this.uv = createCanvas(VIEW_W, VIEW_H);
     this.ir = createCanvas(VIEW_W, VIEW_H);
-    this.bands = new WeakMap(); // scene → each layer's UV and infrared pictures, made once
+    this.bands = new WeakMap(); // scene → each layer's UV and infrared pictures, made once per size and shown part
+    this.w = VIEW_W;
+    this.h = VIEW_H;
+    this.view = FULL_VIEW;
   }
 
-  render(out, scene, p) {
+  /** Match the working canvases to the output's size. */
+  resize(w, h) {
+    if (w === this.w && h === this.h) return;
+    for (const c of [this.layer, this.base, this.glow, this.work, this.uv, this.ir]) {
+      c.width = w;
+      c.height = h;
+    }
+    this.w = w;
+    this.h = h;
+  }
+
+  /**
+   * Draw the scene as this eye sees it into `out`, at the canvas's own size, showing the part `view` picks
+   * (zoomed in, the 60° view narrows to 60° ÷ zoom). Blur is worked out in angles, then turned into
+   * pixels at this size, so a bigger or zoomed view shows finer differences without drawing them larger.
+   */
+  render(out, scene, p, view = FULL_VIEW) {
+    this.resize(out.width, out.height);
+    this.view = fitView(view);
+    const { zoom } = this.view;
+    const W = this.w, H = this.h;
+    // Pixels per arcminute at this size and zoom.
+    const pxPerArcmin = W * zoom / (FIELD_DEG * 60);
+    this.pxPerArcmin = pxPerArcmin;
     const bctx = this.base.getContext('2d', { willReadFrequently: true });
     const gctx = this.glow.getContext('2d', { willReadFrequently: true });
-    bctx.clearRect(0, 0, VIEW_W, VIEW_H);
-    gctx.clearRect(0, 0, VIEW_W, VIEW_H);
+    bctx.clearRect(0, 0, W, H);
+    gctx.clearRect(0, 0, W, H);
     gctx.globalCompositeOperation = 'lighter';
     let anyGlow = false;
     // UV and infrared only cost anything when the eye reaches them and the scene has them.
@@ -242,11 +304,13 @@ export class SightRenderer {
     const bands = (useUv || useIr) && !scene.photo ? this.bandsFor(scene) : null;
     const uctx = bands && useUv ? this.uv.getContext('2d', { willReadFrequently: true }) : null;
     const ictx = bands && useIr ? this.ir.getContext('2d', { willReadFrequently: true }) : null;
-    uctx?.clearRect(0, 0, VIEW_W, VIEW_H);
-    ictx?.clearRect(0, 0, VIEW_W, VIEW_H);
+    uctx?.clearRect(0, 0, W, H);
+    ictx?.clearRect(0, 0, W, H);
 
     scene.layers.forEach((layer, k) => {
-      const [along, across, angle] = p.compound ? [p.compound.blurPx, p.compound.blurPx, 0] : blurFor(layer.distanceM, p);
+      const [along, across, angle] = (p.compound
+        ? [p.compound.blurArcmin, p.compound.blurArcmin, 0] : blurFor(layer.distanceM, p))
+        .map((v, i) => (i < 2 ? v * pxPerArcmin : v));
       this.paint(ctx => layer.draw(ctx, p.light));
       this.blurXY(bctx, along, across, angle);
       if (layer.glow) {
@@ -254,14 +318,15 @@ export class SightRenderer {
         this.blurXY(gctx, along, across, angle);
         anyGlow = true;
       }
+      const irBlur = p.irBlur * pxPerArcmin;
       if (uctx) this.blurXY(uctx, along, across, angle, bands[k].uv);
-      if (ictx) this.blurXY(ictx, Math.hypot(along, p.irBlur), Math.hypot(across, p.irBlur), angle, bands[k].ir);
+      if (ictx) this.blurXY(ictx, Math.hypot(along, irBlur), Math.hypot(across, irBlur), angle, bands[k].ir);
     });
     gctx.globalCompositeOperation = 'source-over';
 
     this.light(bctx, anyGlow ? gctx : null, p, {
-      uv: uctx?.getImageData(0, 0, VIEW_W, VIEW_H).data,
-      ir: ictx?.getImageData(0, 0, VIEW_W, VIEW_H).data,
+      uv: uctx?.getImageData(0, 0, W, H).data,
+      ir: ictx?.getImageData(0, 0, W, H).data,
       uvGain: p.uv * UV_STRENGTH * (scene.uvLevel ?? 1),
       irGain: p.ir * IR_STRENGTH,
     });
@@ -269,18 +334,25 @@ export class SightRenderer {
     // Rods are overwhelmed by bright light: a very rod-heavy eye is dazzled.
     if (p.dazzle) this.glare(p.dazzle);
     if (p.tube) this.tubeEdges();
-    if (p.blindSpot) gap(this.work.getContext('2d'), p.blindSpot);
-    if (p.compound) mosaic(this.work.getContext('2d', { willReadFrequently: true }), p.compound.spacingPx);
+    const spot = blindSpotInView(p.blindSpot, this.view);
+    if (spot) gap(this.work.getContext('2d'), spot);
+    if (p.compound) mosaic(this.work.getContext('2d', { willReadFrequently: true }), p.compound.spacingDeg * 60 * pxPerArcmin, this.view);
 
     const octx = out.getContext('2d');
     octx.drawImage(this.work, 0, 0, out.width, out.height);
   }
 
+  /** Scene coordinates to view pixels: the scene fills the view at 1×; zoomed in, the shown part fills it. */
+  sceneTransform(ctx) {
+    const { zoom: z, x, y } = this.view;
+    ctx.setTransform(z * this.w / SCENE_W, 0, 0, z * this.h / SCENE_H, this.w * (0.5 - x * z), this.h * (0.5 - y * z));
+  }
+
   paint(draw) {
     const ctx = this.layer.getContext('2d');
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.clearRect(0, 0, VIEW_W, VIEW_H);
-    ctx.setTransform(VIEW_W / SCENE_W, 0, 0, VIEW_H / SCENE_H, 0, 0);
+    ctx.clearRect(0, 0, this.w, this.h);
+    this.sceneTransform(ctx);
     draw(ctx);
     ctx.setTransform(1, 0, 0, 1, 0, 0);
   }
@@ -292,13 +364,16 @@ export class SightRenderer {
    * the sky a little bright. The layer's own `uv` paints its hand-made patterns on top.
    */
   bandsFor(scene) {
-    let bands = this.bands.get(scene);
-    if (bands) return bands;
-    bands = scene.layers.map(layer => {
+    const { zoom, x, y } = this.view;
+    const key = `${this.w}×${this.h}×${zoom}×${x}×${y}`;
+    const made = this.bands.get(scene);
+    if (made?.key === key) return made.bands;
+    const W = this.w, H = this.h;
+    const bands = scene.layers.map(layer => {
       this.paint(ctx => layer.draw(ctx, 1));
-      const src = this.layer.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, VIEW_W, VIEW_H);
-      const uv = new ImageData(VIEW_W, VIEW_H);
-      const ir = new ImageData(VIEW_W, VIEW_H);
+      const src = this.layer.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, W, H);
+      const uv = new ImageData(W, H);
+      const ir = new ImageData(W, H);
       const d = src.data;
       for (let i = 0; i < d.length; i += 4) {
         const r = d[i], g = d[i + 1], b = d[i + 2];
@@ -311,19 +386,19 @@ export class SightRenderer {
         ir.data[i] = ir.data[i + 1] = ir.data[i + 2] = n;
         uv.data[i + 3] = ir.data[i + 3] = d[i + 3];
       }
-      const uvCanvas = createCanvas(VIEW_W, VIEW_H);
-      const irCanvas = createCanvas(VIEW_W, VIEW_H);
+      const uvCanvas = createCanvas(W, H);
+      const irCanvas = createCanvas(W, H);
       uvCanvas.getContext('2d').putImageData(uv, 0, 0);
       irCanvas.getContext('2d').putImageData(ir, 0, 0);
       if (layer.uv) {
         const ctx = uvCanvas.getContext('2d');
-        ctx.setTransform(VIEW_W / SCENE_W, 0, 0, VIEW_H / SCENE_H, 0, 0);
+        this.sceneTransform(ctx);
         layer.uv(ctx);
         ctx.setTransform(1, 0, 0, 1, 0, 0);
       }
       return { uv: uvCanvas, ir: irCanvas };
     });
-    this.bands.set(scene, bands);
+    this.bands.set(scene, { key, bands });
     return bands;
   }
 
@@ -347,18 +422,18 @@ export class SightRenderer {
     const s = Math.abs(Math.sin(angle));
     if (s < 0.02 || c < 0.02) {
       const [sx, sy] = s < 0.02 ? [along, across] : [across, along];
-      this.squashBlur(ctx, src, VIEW_W, VIEW_H, sx, sy, lo);
+      this.squashBlur(ctx, src, this.w, this.h, sx, sy, lo);
       return;
     }
-    const size = Math.ceil(Math.hypot(VIEW_W, VIEW_H));
+    const size = Math.ceil(Math.hypot(this.w, this.h));
     const turned = this.turned;
     turned.width = turned.height = size;
     const tctx = turned.getContext('2d');
     tctx.translate(size / 2, size / 2);
     tctx.rotate(-angle);
-    tctx.drawImage(src, -VIEW_W / 2, -VIEW_H / 2);
+    tctx.drawImage(src, -this.w / 2, -this.h / 2);
     ctx.save();
-    ctx.translate(VIEW_W / 2, VIEW_H / 2);
+    ctx.translate(this.w / 2, this.h / 2);
     ctx.rotate(angle);
     ctx.translate(-size / 2, -size / 2);
     this.squashBlur(ctx, turned, size, size, along, across, lo);
@@ -380,9 +455,11 @@ export class SightRenderer {
 
   /** Brightness and colors, plus UV and infrared in their stand-in colors. Works per pixel in linear light. */
   light(bctx, gctx, p, { uv, ir, uvGain, irGain }) {
-    const img = bctx.getImageData(0, 0, VIEW_W, VIEW_H);
+    const W = this.w;
+    const img = bctx.getImageData(0, 0, W, this.h);
     const d = img.data;
-    const g = gctx?.getImageData(0, 0, VIEW_W, VIEW_H).data;
+    const g = gctx?.getImageData(0, 0, W, this.h).data;
+    const NOISE = noiseFor(W * this.h);
     const uvK = uvGain * p.exposure / 255;
     const irK = irGain * p.exposure / 255;
     const heat = p.irNoise * IR_NOISE_PX;
@@ -445,9 +522,9 @@ export class SightRenderer {
       // Body-heat noise shows even on black: soft, in 2×2 blobs, from another part of the fixed pattern.
       if (heat) {
         const px = i >> 2;
-        const x = px % VIEW_W;
-        const y = (px - x) / VIEW_W;
-        noise += NOISE[((y >> 1) * VIEW_W + (x >> 1) + 7919) % NOISE.length] * heat;
+        const x = px % W;
+        const y = (px - x) / W;
+        noise += NOISE[((y >> 1) * W + (x >> 1) + 7919) % NOISE.length] * heat;
       }
       d[i] = sr + noise;
       d[i + 1] = sg + noise;
@@ -461,29 +538,31 @@ export class SightRenderer {
   glare(alpha) {
     const ctx = this.work.getContext('2d');
     const tctx = this.squash.getContext('2d');
-    this.squash.width = VIEW_W;
-    this.squash.height = VIEW_H;
-    drawBlurred(tctx, this.work, 10);
+    this.squash.width = this.w;
+    this.squash.height = this.h;
+    drawBlurred(tctx, this.work, GLARE_BLUR * this.pxPerArcmin);
     ctx.save();
     ctx.globalCompositeOperation = 'screen';
     ctx.globalAlpha = alpha;
     ctx.drawImage(this.squash, 0, 0);
     ctx.globalAlpha = 0.06;
     ctx.fillStyle = '#fff';
-    ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+    ctx.fillRect(0, 0, this.w, this.h);
     ctx.restore();
   }
 
   /**
    * A tube eye sees a narrower field than a round one, but still wider than this 60° view,
-   * so only the far corners go a little soft and dim.
+   * so only the far corners go a little soft and dim. Zoomed in, those corners move out of sight.
    */
   tubeEdges() {
+    const W = this.w, H = this.h, z = this.view.zoom;
+    const [cx, cy] = shownAt(this.view, 0.5, 0.5); // the middle of the eye's view
     const ctx = this.work.getContext('2d');
     const tctx = this.squash.getContext('2d');
-    this.squash.width = VIEW_W;
-    this.squash.height = VIEW_H;
-    drawBlurred(tctx, this.work, 6);
+    this.squash.width = W;
+    this.squash.height = H;
+    drawBlurred(tctx, this.work, TUBE_EDGE_BLUR * this.pxPerArcmin);
     // Keep only the blurred edges: fade the blurred copy out toward the middle.
     const ring = (c, inner, outer, stops) => {
       const g = c.createRadialGradient(0, 0, inner, 0, 0, outer);
@@ -492,7 +571,7 @@ export class SightRenderer {
     };
     const oval = (c, fill) => {
       c.save();
-      c.setTransform(VIEW_W / 2, 0, 0, VIEW_H / 2, VIEW_W / 2, VIEW_H / 2);
+      c.setTransform(z * W / 2, 0, 0, z * H / 2, cx * W, cy * H);
       c.fillStyle = fill;
       c.fillRect(-1, -1, 2, 2);
       c.restore();
@@ -506,29 +585,30 @@ export class SightRenderer {
 }
 
 /**
- * Blur in view pixels for something at `distanceM`, as an oval: [along, across, angle]. `along` is the long
+ * Blur in arcminutes for something at `distanceM`, as an oval: [along, across, angle]. `along` is the long
  * side, at `angle` (radians, view coordinates), `across` the short side. A slit pupil blurs more one way
  * (across or up-down); astigmatism adds blur along its steep direction, at any slant.
+ * The view draws it at true size; the eye-chart readout (`p.chart`) keeps its older sums (READOUT_*).
  */
 export function blurFor(distanceM, p) {
-  // The eye-chart readout works in arcminutes: the blur drawn at true size is scaled back up for it.
-  const k = p.chart ? ARCMIN_PER_PX : 1;
+  const focusScale = p.chart ? READOUT_FOCUS_SCALE : 1;
   const axis = pupilMm => {
-    const defocus = 0.5 * defocusBlurPx(distanceM, p.focusM, pupilMm, PX_PER_DEG);
+    const defocus = 0.5 * defocusBlurArcmin(distanceM, p.focusM, pupilMm) * focusScale;
     // Light spreading through the pupil (diffraction), about 2.3 arcminutes ÷ pupil width in mm.
-    const fine = Math.hypot(p.fineArcmin, 2.3 / pupilMm) * (p.chart ? 1 : DEFOCUS_DISPLAY_GAIN * SIGMA_PER_GAP / ARCMIN_PER_PX);
+    const fine = Math.hypot(p.fineArcmin, 2.3 / pupilMm) * (p.chart ? 1 : SIGMA_PER_GAP);
     // In the dark, rods pool their signals: more rods, blurrier (a human at night: about 20/160).
-    const night = 1.4 * p.night ** 2 * p.rodBlur * k;
+    const night = 1.4 * p.night ** 2 * p.rodBlur * REF_ARCMIN_PER_PX;
     // A night reflector scatters light sideways a little.
-    const scatter = (p.tapetum ? 0.7 : 0) * k;
-    return Math.hypot(defocus, fine, night, scatter, p.amblyopiaBlur);
+    const scatter = (p.tapetum ? 0.7 : 0) * REF_ARCMIN_PER_PX;
+    const amblyopia = p.amblyopiaBlur * (p.chart ? READOUT_AMBLYOPIA_SCALE : 1);
+    return Math.hypot(defocus, fine, night, scatter, amblyopia);
   };
   const bx = axis(p.pupilW);
   const by = axis(p.pupilH);
   const [ux, uy] = p.cylinderDir;
   // The pupil's width along the steep direction sets how much the astigmatism blurs.
   const a = p.cylinderD
-    ? 0.5 * dioptersBlurPx(p.cylinderD, Math.hypot(p.pupilW * ux, p.pupilH * uy), PX_PER_DEG)
+    ? 0.5 * dioptersBlurArcmin(p.cylinderD, Math.hypot(p.pupilW * ux, p.pupilH * uy)) * focusScale
     : 0;
   // Add the two ovals (as spreads, like hypot does for circles), then find the long side and its angle.
   const xx = bx * bx + a * a * ux * ux;
@@ -579,10 +659,12 @@ const FILL_STEPS = 150;
  * A thin dashed line marks where it is.
  */
 function gap(ctx, s) {
-  const cx = s.x * VIEW_W, cy = s.y * VIEW_H, rx = s.rx * VIEW_W, ry = s.ry * VIEW_H;
+  const W = ctx.canvas.width, H = ctx.canvas.height;
+  const cx = s.x * W, cy = s.y * H, rx = s.rx * W, ry = s.ry * H;
   // The area around the spot, kept inside the view (a big spot can reach past its edge).
   const x0 = Math.max(0, Math.round(cx - rx * 2.5)), y0 = Math.max(0, Math.round(cy - ry * 2.5));
-  const w = Math.min(VIEW_W, Math.round(cx + rx * 2.5)) - x0, h = Math.min(VIEW_H, Math.round(cy + ry * 2.5)) - y0;
+  const w = Math.min(W, Math.round(cx + rx * 2.5)) - x0, h = Math.min(H, Math.round(cy + ry * 2.5)) - y0;
+  if (w < 1 || h < 1) return;
   const hole = (c, k) => {
     c.beginPath();
     c.ellipse(cx - x0, cy - y0, rx * k, ry * k, 0, 0, Math.PI * 2);
@@ -655,8 +737,10 @@ function gap(ctx, s) {
   ctx.drawImage(SPREAD, x0, y0);
   ctx.save();
   ctx.translate(x0, y0);
-  ctx.setLineDash([4, 4]);
-  ctx.lineWidth = 1.5;
+  // The dashed line keeps the size it had on the 640-pixel view.
+  const line = W / VIEW_W;
+  ctx.setLineDash([4 * line, 4 * line]);
+  ctx.lineWidth = 1.5 * line;
   ctx.strokeStyle = 'rgba(255,255,255,0.75)';
   hole(ctx, 1);
   ctx.stroke();
@@ -668,17 +752,28 @@ function gap(ctx, s) {
  * (the picture is already blurred by each facet's view, so that is the facet's average).
  * Big dots get a faint edge so the honeycomb shows; the brain doesn't see edges, it's a guide.
  */
-function mosaic(ctx, spacing) {
-  const d = ctx.getImageData(0, 0, VIEW_W, VIEW_H).data;
+function mosaic(ctx, spacing, view) {
+  const W = ctx.canvas.width, H = ctx.canvas.height;
+  const d = ctx.getImageData(0, 0, W, H).data;
   const r = spacing / Math.sqrt(3); // hexagon corner radius, pointy side up
   const rowH = 1.5 * r;
-  const edge = spacing >= 10;
-  ctx.lineWidth = 1;
-  for (let row = 0, y = 0; y < VIEW_H + r; row++, y = row * rowH) {
-    for (let x = row % 2 ? spacing / 2 : 0; x < VIEW_W + spacing; x += spacing) {
-      const px = Math.min(VIEW_W - 1, Math.max(0, Math.round(x)));
-      const py = Math.min(VIEW_H - 1, Math.max(0, Math.round(y)));
-      const i = (py * VIEW_W + px) * 4;
+  // Edges on dots at least 10 pixels of the 640-pixel view apart.
+  const line = W / VIEW_W;
+  const edge = spacing >= 10 * line;
+  ctx.lineWidth = line;
+  // The honeycomb belongs to the eye, not the screen: one dot sits at the top left corner of the eye's view,
+  // wherever zooming and dragging have moved it (at 1× it is the screen's corner).
+  const [fx, fy] = shownAt(view, 0, 0);
+  const ox = fx * W, oy = fy * H;
+  // From the first row and dot that reach into the view.
+  for (let k = Math.floor((-r - oy) / rowH) + 1, y = oy + k * rowH; y < H + r; k++, y = oy + k * rowH) {
+    const base = ox + (k & 1 ? spacing / 2 : 0);
+    let first = base - spacing * Math.floor((base + spacing / 2) / spacing);
+    if (first <= 1e-9 - spacing / 2) first += spacing;
+    for (let x = first; x < W + spacing; x += spacing) {
+      const px = Math.min(W - 1, Math.max(0, Math.round(x)));
+      const py = Math.min(H - 1, Math.max(0, Math.round(y)));
+      const i = (py * W + px) * 4;
       const color = `rgb(${d[i]},${d[i + 1]},${d[i + 2]})`;
       ctx.beginPath();
       for (let k = 0; k < 6; k++) {

@@ -133,12 +133,20 @@ button { font: inherit; color: inherit; }
 .sight-view--big { position: fixed; z-index: 6; box-shadow: 0 6px 24px rgb(0 0 0 / 0.45); }
 .sight-backdrop { position: fixed; z-index: 5; background: var(--stage); border-radius: var(--radius); }
 .sight-backdrop[hidden] { display: none; }
-.sight-enlarge {
-  position: absolute; top: 8px; right: 8px; height: 30px; padding: 0 10px; cursor: pointer;
+/* Zoom and Enlarge, top right of the view. */
+.sight-tools { position: absolute; top: 8px; right: 8px; display: flex; gap: 6px; }
+.sight-zoom { display: flex; background: rgb(255 255 255 / 0.94); border-radius: 6px; }
+.sight-enlarge, .sight-zoom button {
+  height: 30px; padding: 0 10px; cursor: pointer;
   font: 700 14px var(--font); color: var(--ink); background: rgb(255 255 255 / 0.94);
   border: 2px solid transparent; border-radius: 6px;
 }
-.sight-enlarge:hover { border-color: var(--ink); }
+.sight-zoom button { padding: 0 7px; background: none; }
+.sight-enlarge:hover, .sight-zoom button:hover { border-color: var(--ink); }
+.sight-zoom button[aria-pressed="true"] { background: var(--ink); color: #fff; }
+/* Zoomed in, the picture can be dragged around. */
+.sight-view--zoomed canvas { cursor: grab; touch-action: none; }
+.sight-view--dragging canvas { cursor: grabbing; }
 .sight-tag {
   position: absolute; padding: 1px 8px; font-size: 15px; font-weight: 600; line-height: 22px; white-space: nowrap;
   background: rgb(255 255 255 / 0.94); color: var(--ink); border-radius: 4px; cursor: help;
