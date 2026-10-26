@@ -88,6 +88,8 @@ const mul3 = (p, q) => Array.from({ length: 9 }, (_, k) => {
 
 const HUMAN_INVERSE = invert3(opponent(HUMAN.peaks, HUMAN.lensCutoffNm));
 
+const UV_SENSOR_NM = 380; // a bluest sensor peaking below this is an ultraviolet sensor
+
 const ROD_PEAK = 498; // nm; rods are most sensitive to blue-green light
 /** How much rods respond to the screen's red, green and blue, scaled so white gives 1. */
 export const ROD_WEIGHTS = (() => {
@@ -110,17 +112,22 @@ export function colorStep(settings) {
   const peaks = effectivePeaks(settings);
   if (!peaks) return null;
   if (peaks.length >= 4) return { kind: 'shift', channels: peaks.length };
+  // Three sensors starting in ultraviolet (like a bee's) aren't a person's red, green and blue either.
+  if (peaks.length === 3 && Math.min(...peaks) < UV_SENSOR_NM) return { kind: 'shift', channels: 3 };
   return { kind: 'matrix', m: peakMatrix(peaks, settings.lensCutoffNm, settings.uvLens) };
 }
 
 /**
- * Made-up colors for 4 or 5 channels. The extra channel is guessed from the picture (mostly blue light),
+ * Made-up colors for 4 or 5 channels, or 3 that start in ultraviolet. The extra channel is guessed from the picture (mostly blue light),
  * then every color is moved over one step (4) or two steps (5) so the extra one gets a screen color.
  * Works on linear r, g, b and writes into `out`.
  */
 export function shiftColors(r, g, b, channels, out) {
   const extra = 0.75 * b + 0.25 * (LUMA[0] * r + LUMA[1] * g + LUMA[2] * b);
-  if (channels === 4) {
+  if (channels === 3) {
+    // Ultraviolet, blue and green shown as blue, green and red: the green sensor barely sees red, so red goes dark.
+    out[0] = 0.75 * g + 0.25 * r; out[1] = 0.85 * b + 0.15 * g; out[2] = extra;
+  } else if (channels === 4) {
     out[0] = g; out[1] = b; out[2] = extra;
   } else {
     out[0] = b; out[1] = extra; out[2] = r;

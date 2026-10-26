@@ -4,6 +4,7 @@ import { escapeHtml } from './ui/glossary.js';
 import { EYE_ICONS } from './ui/eyeIcons.js';
 import { EyeStage } from './eye3d/eyeStage.js';
 import { buildCameraEye } from './eye3d/cameraEye.js';
+import { buildCompoundEye } from './eye3d/compoundEye.js';
 import { createSettings, rangeFor, eyeConfig, shows } from './ui/settingsPanel.js';
 import { installTips } from './ui/tips.js';
 import { createSight } from './ui/sightPanel.js';
@@ -11,7 +12,7 @@ import { createSpectrumBar } from './ui/spectrumBar.js';
 import { peaksForCount, dragRange, bandReach } from './model/spectrum.js';
 
 // 3D models that exist so far, by type `model`. The other types arrive one build step at a time.
-const MODELS = { camera: buildCameraEye };
+const MODELS = { camera: buildCameraEye, compound: buildCompoundEye };
 const CUSTOM = 'custom';
 const BIG_EYE_MM = 30;
 
@@ -26,10 +27,14 @@ const EYE_NOTES = [
 /** What the UV and IR rays are doing in this eye right now: hover text for the buttons and for the rays themselves. */
 function rayTips(s, rays) {
   const reach = bandReach(s);
-  const uvNow = reach.uv ? 'UV passes the clear lens and reaches the retina, where the bluest sensor picks some of it up.'
+  // A compound eye has no single lens or retina: light goes through the facets to their sensors.
+  const facets = s.facets != null;
+  const uvNow = facets ? `UV passes through the facets to the light sensors${reach.uv ? ', and the UV sensor picks it up.' : ', but no sensor here is tuned blue enough to catch it.'}`
+    : reach.uv ? 'UV passes the clear lens and reaches the retina, where the bluest sensor picks some of it up.'
     : s.uvLens === 'on' && s.lensCutoffNm ? 'UV is stopped by the slightly yellow lens, so it never reaches the retina.'
     : 'UV gets through to the retina, but no sensor here is tuned blue enough to catch it.';
-  const irNow = reach.ir ? 'Near-infrared reaches the retina, and the red-shifted reddest sensor picks it up.'
+  const irNow = facets ? `Near-infrared passes through the facets to the light sensors${reach.ir ? ', and the reddest sensor picks it up.' : ', but no sensor here is tuned red enough to catch it.'}`
+    : reach.ir ? 'Near-infrared reaches the retina, and the red-shifted reddest sensor picks it up.'
     : 'Near-infrared reaches the retina, but no sensor here is tuned red enough to catch it.';
   const faint = seen => (seen ? '' : ' That’s why the rays are faint.');
   return {
@@ -48,6 +53,12 @@ async function main() {
   const data = await res.json();
   const typeById = Object.fromEntries(data.types.map(t => [t.id, t]));
   const exampleById = Object.fromEntries(data.examples.map(e => [e.id, e]));
+  // An example's measured acuity holds for its own eye size and rods: remember them, so changing either changes it.
+  for (const { defaults } of data.examples) {
+    if (defaults.acuityCpd != null) Object.assign(defaults, { acuityEyeMm: defaults.eyeSizeMm, acuityRods: defaults.rods });
+    // Likewise its measured pupil range, for its own eye size.
+    if (defaults.darkPupilMm != null) defaults.pupilRefEyeMm = defaults.eyeSizeMm;
+  }
   const settingById = Object.fromEntries(data.settings.map(s => [s.id, s]));
 
   const defaultsFor = id => ({ ...exampleById[id].defaults });
@@ -64,9 +75,9 @@ async function main() {
   const pupilSetting = settingById.pupilMm;
   const changeSetting = (key, value) => store.set(s => {
     const settings = { ...s.settings, [key]: value };
-    // A smaller eye can't keep a pupil wider than it allows.
-    const [, maxPupil] = rangeFor(pupilSetting, configFor(s), settings);
-    if (settings.pupilMm > maxPupil) settings.pupilMm = maxPupil;
+    // The pupil's range grows and shrinks with the eye: keep the pupil inside it.
+    const [minPupil, maxPupil] = rangeFor(pupilSetting, configFor(s), settings);
+    settings.pupilMm = Math.min(maxPupil, Math.max(minPupil, settings.pupilMm));
     // The color buttons and the spectrum bar agree: a new number of sensors gets new peaks.
     // The example's own number brings back its real peaks and lens.
     if (key === 'colors') {
@@ -100,7 +111,8 @@ async function main() {
 
   const sight = createSight($('#sight'), {
     parts: data.parts,
-    reference: exampleById.human.defaults,
+    defaultsOf: id => exampleById[id].defaults,
+    bigOver: $('.eye-stage'),
     onScene: sceneId => store.set({ sceneId }),
     onLight: light => store.set({ light }),
     onImage: ownImage => store.set({ ownImage, sceneId: 'own' }),
@@ -168,8 +180,12 @@ async function main() {
       }
       data.parts.uvLight.tip = tips.uvRay;
       data.parts.irLight.tip = tips.irRay;
+      // An example can tell its own story for a part (the octopus slides its lens instead of reshaping it).
+      stage.parts = example.parts
+        ? { ...data.parts, ...Object.fromEntries(Object.entries(example.parts).map(([k, v]) => [k, { ...data.parts[k], ...v }])) }
+        : data.parts;
       if (model) {
-        stage.setEye(model({ ...s.settings, irisColor: example.look?.iris, rays: s.rays }));
+        stage.setEye(model({ ...s.settings, irisColor: example.look?.iris, eyeColor: example.look?.eye, rays: s.rays }));
         settingsPanel.update(configFor(s), s.settings);
         sightSettings.update(configFor(s), s.settings);
       } else {

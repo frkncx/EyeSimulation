@@ -8,6 +8,7 @@ import { CYLINDER_MAX_D } from '../model/optics.js';
 const R = 12; // human eye: about 24 mm across
 const AXIAL_STRETCH = 0.08; // eye length change at the strongest near- or farsightedness (drawn larger than life)
 const CORNEA_OVAL = 0.6; // extra dome height, along the steep direction, at the strongest astigmatism
+const LENS_SLIDE = 1.2; // how far a sliding lens moves from near to far focus (drawn larger than life)
 
 /** Lathe a profile around the eye's axis (lathe works around y, so turn y into +z). */
 function lathe(points, segments = 128) {
@@ -159,7 +160,8 @@ function rayArrow(part, points, color, faint) {
 export function buildCameraEye({
   eyeSizeMm = 24, pupilMm = 8, pupilShape = 'round', focus = 1, retina = 'away', tapetum = 'off', irisColor = '#6b4a2e',
   refraction = 0, astigmatism = 'off', cylinderD = 1.5, axisDeg = 180, eyeShape = 'round', rods = null,
-  peaks = null, lensCutoffNm = null, uvLens = 'none', rays = { uv: false, ir: false },
+  peaks = null, lensCutoffNm = null, uvLens = 'none', rays = { uv: false, ir: false }, lensFocus = 'shape',
+  spots = [{ part: 'fovea' }],
 } = {}) {
   const reach = bandReach({ peaks, lensCutoffNm, uvLens });
   const group = new THREE.Group();
@@ -267,12 +269,18 @@ export function buildCameraEye({
   // Lens: flatter at the front than at the back. Focusing near makes it rounder and thicker.
   // The iris rests on the lens front, so the front can bulge only up to the iris; the back takes the rest.
   // A tube eye's lens is bigger and thicker.
+  // A hard round lens (`lensFocus: 'slide'`, the octopus) keeps its shape and moves instead: toward the retina
+  // for far things, forward for near ones (Beer 1897, in Hanke & Kelber 2020).
   const depth = tube ? TUBE.lensDepth : 1;
-  const lensZ = irisZ - 2.3 * depth;
   const near = 1 - focus;
-  const lensRadius = (tube ? TUBE.lens : 4.5) - 0.35 * near;
-  const front = (1.6 + 0.55 * near) * depth;
-  const back = (2.1 + 0.9 * near) * depth;
+  const slide = lensFocus === 'slide';
+  const ballR = 4;
+  // Where the focus muscle holds the lens (a sliding lens: the middle of its travel).
+  const restZ = slide ? irisZ - ballR - 0.15 - LENS_SLIDE / 2 : irisZ - 2.3 * depth;
+  const lensZ = slide ? irisZ - ballR - 0.15 - LENS_SLIDE * focus : restZ;
+  const lensRadius = slide ? ballR : (tube ? TUBE.lens : 4.5) - 0.35 * near;
+  const front = slide ? ballR : (1.6 + 0.55 * near) * depth;
+  const back = slide ? ballR : (2.1 + 0.9 * near) * depth;
   const lens = [];
   for (let i = 0; i <= 48; i++) {
     const a = (i / 48) * Math.PI;
@@ -303,9 +311,9 @@ export function buildCameraEye({
   group.add(gelMesh);
 
   // Focus muscle: a ring around the lens, joined to the eye wall.
-  const muscleR = tube ? tubeWall(lensZ) - 1.0 : 7.4;
+  const muscleR = tube ? tubeWall(restZ) - 1.0 : 7.4;
   const muscle = mesh('focusMuscle', new THREE.TorusGeometry(muscleR, tube ? 0.9 : 1.1, 20, 128), material('#a85a4a'));
-  muscle.position.z = lensZ;
+  muscle.position.z = restZ;
   muscle.scale.z = 1.6;
   group.add(muscle);
 
@@ -348,10 +356,17 @@ export function buildCameraEye({
     nerveLabelAt = new THREE.Vector3(0, 0, cz - (backR + 14));
   }
 
-  const fovea = mesh('fovea', new THREE.CircleGeometry(0.6, 48), material('#8a2a1e'));
-  fovea.position.set(0, 0, cz - onRetina);
-  fovea.lookAt(center);
-  group.add(fovea);
+  // The sharpest spots on the retina (`spots`): usually one fovea in the middle. `deg` moves one sideways along
+  // the middle line, positive toward the temple (the optic disc is on the nose side), and `r` sets its size.
+  // An eagle has a second, shallower fovea toward the temple.
+  const spotAt = deg => fromCenter(new THREE.Vector3(Math.sin(THREE.MathUtils.degToRad(deg)), 0,
+    -Math.cos(THREE.MathUtils.degToRad(deg))), onRetina);
+  for (const spot of spots) {
+    const m = mesh(spot.part, new THREE.CircleGeometry(spot.r ?? 0.6, 48), material('#8a2a1e'));
+    m.position.copy(spotAt(spot.deg ?? 0));
+    m.lookAt(center);
+    group.add(m);
+  }
 
   const v = (x, y, z) => new THREE.Vector3(x, y, z);
   // Light rays through the pupil, when their button is on: violet UV ones stop at a UV-blocking lens, or
@@ -383,13 +398,13 @@ export function buildCameraEye({
     { part: 'opticNerve', position: nerveLabelAt, side: 'left' },
     { part: 'lens', position: v(0, 2.2, lensZ), side: 'right', inner: true },
     // These two follow the cut edge, where their cross-section shows.
-    { part: 'focusMuscle', position: v(0, muscleR, lensZ), side: 'left', inner: true, onCut: { ring: muscleR, z: lensZ } },
+    { part: 'focusMuscle', position: v(0, muscleR, restZ), side: 'left', inner: true, onCut: { ring: muscleR, z: restZ } },
     { part: 'choroid', position: v(0, 8.6, -7.6), side: 'left', inner: true, onCut: { sphere: backR - 0.6, angleDeg: tube ? 120 : 135, z: cz } },
     { part: 'vitreous', position: v(0, -2.7, -7.5), side: 'right', inner: true, onCut: { sphere: tube ? 7 : 8, angleDeg: 200, z: cz } },
     // Back inside wall, on the half that stays: visible through the cut.
     { part: 'retina', position: fromCenter(v(-0.35, -0.55, -0.76), onRetina), side: 'left', inner: true },
     { part: 'blindSpot', position: fromCenter(nerveDir, onRetina), side: 'left', inner: true },
-    { part: 'fovea', position: v(0, 0, cz - onRetina), side: 'right', inner: true },
+    ...spots.map(spot => ({ part: spot.part, position: spotAt(spot.deg ?? 0), side: 'right', inner: true })),
     { part: 'wiring', position: v(0, 0, 0), side: 'right', inner: true, onCut: { sphere: wiringR, angleDeg: 215, z: cz } },
     { part: 'tapetum', position: fromCenter(v(-0.3, 0.35, -0.89), backR - 1), side: 'left', inner: true },
   ].filter(a => (a.part !== 'blindSpot' || wiringInFront) && (a.part !== 'tapetum' || hasTapetum));

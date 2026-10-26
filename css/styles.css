@@ -129,6 +129,16 @@ button { font: inherit; color: inherit; }
 .scene-button[aria-pressed="true"] span::before { content: "✓ "; }
 .sight-view { position: relative; background: var(--stage); border-radius: var(--radius); overflow: hidden; }
 .sight-view canvas { display: block; width: 100%; aspect-ratio: 16 / 10; }
+/* Enlarged: over the 3D eye's stage (placed by sightPanel.js), on a backdrop the size of the stage. */
+.sight-view--big { position: fixed; z-index: 6; box-shadow: 0 6px 24px rgb(0 0 0 / 0.45); }
+.sight-backdrop { position: fixed; z-index: 5; background: var(--stage); border-radius: var(--radius); }
+.sight-backdrop[hidden] { display: none; }
+.sight-enlarge {
+  position: absolute; top: 8px; right: 8px; height: 30px; padding: 0 10px; cursor: pointer;
+  font: 700 14px var(--font); color: var(--ink); background: rgb(255 255 255 / 0.94);
+  border: 2px solid transparent; border-radius: 6px;
+}
+.sight-enlarge:hover { border-color: var(--ink); }
 .sight-tag {
   position: absolute; padding: 1px 8px; font-size: 15px; font-weight: 600; line-height: 22px; white-space: nowrap;
   background: rgb(255 255 255 / 0.94); color: var(--ink); border-radius: 4px; cursor: help;

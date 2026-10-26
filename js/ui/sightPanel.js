@@ -2,7 +2,7 @@
 // and below it the eye's own settings that belong with the scene (Focus), filled in by main.js.
 import { escapeHtml } from './glossary.js';
 import { SCENES, imageScene, drawPlain } from '../scenes/scenes.js';
-import { SightRenderer, sightParams, chartBlur, VIEW_W, VIEW_H } from '../sight/sightPipeline.js';
+import { SightRenderer, sightParams, smallestDetail, VIEW_W, VIEW_H } from '../sight/sightPipeline.js';
 
 const THUMB_W = 128;
 const THUMB_H = 80;
@@ -18,6 +18,9 @@ const PHOTO_NOTE = 'Photos only record visible light, so this one has no UV or i
 const SHARPNESS_TIP = 'Eye chart score from 20 feet (6 m). 20/40 means this eye must be at 20 feet to read what a typical eye reads from 40.';
 const DETAIL_TIP = 'The finest gap this eye can make out. A typical human eye manages about 1 arcminute.';
 
+const ENLARGE_TIP = 'Show the view large, over the 3D eye, so you can change settings while looking closely. Esc goes back.';
+const SHRINK_TIP = 'Put the view back in this panel.';
+
 const lightText = v => (v >= 0.8 ? 'Day' : v >= 0.55 ? 'Dim' : v >= 0.3 ? 'Dusk' : 'Night');
 
 /** "20/40" and "2 arcminutes (1/30 of a degree)" for a smallest detail of `arcmin`. */
@@ -25,15 +28,17 @@ function sharpnessText(arcmin) {
   const score = 20 * arcmin;
   const step = score < 100 ? 5 : 10;
   const am = arcmin < 10 ? Math.round(arcmin * 10) / 10 : Math.round(arcmin);
+  // A degree or more (compound eyes) is written in degrees instead of a fraction of one.
+  const deg = am >= 60 ? `${Math.round(am / 6) / 10} degree${am === 60 ? '' : 's'}` : `1/${Math.round(60 / am)} of a degree`;
   return {
     score: `20/${Math.max(step, Math.round(score / step) * step)}`,
-    detail: `${am} arcminute${am === 1 ? '' : 's'} (1/${Math.max(1, Math.round(60 / am))} of a degree)`,
+    detail: `${am} arcminute${am === 1 ? '' : 's'} (${deg})`,
   };
 }
 
-/** `reference` is a typical human eye's settings: the 20/20 that every eye is measured against. */
-export function createSight(root, { parts, reference, onScene, onLight, onImage }) {
-  const referenceBlur = chartBlur(reference, 1);
+/** `defaultsOf(exampleId)` gives an example's own settings, where its sharpness is its measured acuity. */
+/** `bigOver` is the element the enlarged view covers (the 3D eye's stage). */
+export function createSight(root, { parts, defaultsOf, bigOver, onScene, onLight, onImage }) {
   root.innerHTML = `
     <div class="scene-picker" role="group" aria-label="Scene">
       ${SCENES.map(s => `
@@ -50,6 +55,7 @@ export function createSight(root, { parts, reference, onScene, onLight, onImage 
       <canvas width="${VIEW_W}" height="${VIEW_H}" aria-label="The scene as this eye sees it"></canvas>
       <span class="sight-tag sight-tag--blind" tabindex="0" data-tip="${escapeHtml(parts.blindSpot.tip)}">blind spot</span>
       <span class="sight-tag sight-tag--made-up" tabindex="0" data-tip="${escapeHtml(MADE_UP_TIP)}">False color</span>
+      <button type="button" class="sight-enlarge" aria-pressed="false" data-tip="${escapeHtml(ENLARGE_TIP)}">Enlarge</button>
       <div class="sight-notes"></div>
       <p class="sight-missing" hidden></p>
     </div>
@@ -109,6 +115,41 @@ export function createSight(root, { parts, reference, onScene, onLight, onImage 
   });
   lightInput.addEventListener('input', () => onLight(Number(lightInput.value)));
 
+  // Enlarged, the view sits over the 3D eye's stage: as big as fits there at its own shape, centered on a dark
+  // backdrop. The settings on both sides stay where they are.
+  const viewBox = root.querySelector('.sight-view');
+  const enlarge = root.querySelector('.sight-enlarge');
+  const backdrop = document.createElement('div');
+  backdrop.className = 'sight-backdrop';
+  backdrop.hidden = true;
+  document.body.append(backdrop);
+  let big = false;
+  const place = () => {
+    if (!big) return;
+    const r = bigOver.getBoundingClientRect();
+    Object.assign(backdrop.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px` });
+    const pad = 12;
+    const w = Math.min(r.width - 2 * pad, (r.height - 2 * pad) * VIEW_W / VIEW_H);
+    const h = w * VIEW_H / VIEW_W;
+    Object.assign(viewBox.style, {
+      left: `${r.left + (r.width - w) / 2}px`, top: `${r.top + (r.height - h) / 2}px`, width: `${w}px`,
+    });
+  };
+  const setBig = on => {
+    big = on;
+    viewBox.classList.toggle('sight-view--big', on);
+    backdrop.hidden = !on;
+    enlarge.textContent = on ? 'Shrink' : 'Enlarge';
+    enlarge.setAttribute('aria-pressed', String(on));
+    enlarge.dataset.tip = on ? SHRINK_TIP : ENLARGE_TIP;
+    if (on) place();
+    else viewBox.style.left = viewBox.style.top = viewBox.style.width = '';
+  };
+  enlarge.addEventListener('click', () => setBig(!big));
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && big) setBig(false); });
+  new ResizeObserver(place).observe(bigOver);
+  window.addEventListener('resize', place);
+
   const renderer = new SightRenderer();
   let pending = null;
   let thumbFor = null;
@@ -144,7 +185,8 @@ export function createSight(root, { parts, reference, onScene, onLight, onImage 
         return;
       }
       const p = sightParams(s.settings, s.light);
-      const text = sharpnessText(chartBlur(s.settings, s.light) / referenceBlur);
+      // A compound eye's finest detail comes straight from its facets; a camera eye's from its measured acuity.
+      const text = sharpnessText(smallestDetail(s.settings, s.light, defaultsOf(s.exampleId)));
       for (const dd of sharpness.querySelectorAll('[data-sharpness]')) dd.textContent = text[dd.dataset.sharpness];
       blindTag.hidden = !p.blindSpot;
       if (p.blindSpot) {

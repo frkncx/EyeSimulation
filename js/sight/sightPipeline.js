@@ -8,8 +8,10 @@
 //               range reaches them, added in stand-in colors (infrared a little blurrier, with body-heat noise)
 //   4. glare    the night reflector scatters light
 //   5. gap      the blind spot, when the retina faces away from the light
+// A compound eye blurs by its facets' acceptance angle instead (the same at every distance), skips the pupil,
+// glare and blind spot, and ends with a mosaic: one dot per facet.
 import { createCanvas, drawBlurred, supportsCanvasFilter, SRGB_TO_LINEAR, linearToSrgb } from './imageOps.js';
-import { defocusBlurPx, dioptersBlurPx, vergence, REFRACTION_MAX_D } from '../model/optics.js';
+import { defocusBlurPx, dioptersBlurPx, vergence, DEFOCUS_DISPLAY_GAIN, REFRACTION_MAX_D, facetAngle, facetAcceptance } from '../model/optics.js';
 import { colorStep, shiftColors, ROD_WEIGHTS } from './colorVision.js';
 import { bandReach, UV_FROM_NM, IR_FROM_NM } from '../model/spectrum.js';
 import { focusDistanceM, rodsPerCone } from '../ui/settingsPanel.js';
@@ -41,23 +43,26 @@ const SENS_POWER = 0.6; // brightness grows a little slower than pupil area
 // The pupil: a human one is about 4 mm in daylight (2–4 mm in sunshine) and opens to about 8 mm in the dark.
 // How far each shape can close, as a share of its widest area: round about 1/15, a slit 1/135
 // (Banks et al. 2015), a horizontal slit about 0.15 (octopus).
-const DAY_PUPIL_MM = 4;
-const DARK_OPENING = 2; // in the dark a pupil opens to about twice its daylight width
-// The widest pupil an eye can hold, per mm of eye size (as the Pupil diameter setting's own limit).
-const PUPIL_MAX_PER_EYE_MM = { round: 0.35, tube: 0.5 };
 const PUPIL_CLOSING = { round: 1 / 15, slit: 1 / 135, horizontal: 0.15 };
 // How much of the light drop still shows after the eye adapts: 0 = fully adapted, 1 = not at all.
 // At 0.6 a night without light sources is about 0.4% of day brightness: close to black, so only lamps stand out.
 const ADAPTATION = 0.6;
-const MAX_FOCUS_BLUR = 28; // px; the most blur from defocus or from astigmatism
 const AMBLYOPIA_BLUR = 3.5; // px; the brain's lost sharpness, the same at every distance
 const LUMA = [0.2126, 0.7152, 0.0722];
 const MID_GREY = 118;
 const HUMAN_RODS_PER_CONE = 20;
-const CONE_BLUR = 1.6; // px of daytime blur for every 10× fewer cones than a human
+// Sharpness. Each eye's finest detail comes from its measured acuity in cycles per degree (`acuityCpd` in its
+// defaults); 30 is the 20/20 standard, a 1-arcminute gap. It scales with eye size (a bigger image over the same
+// sensors) and coarsens as rods crowd out cones. One view pixel is about 5.6 arcminutes, so at true size most
+// differences wouldn't show: the view draws it 4 times larger than life, like the blur from focusing errors
+// (the readout uses the true size). Astigmatism and amblyopia blur is drawn larger than life too.
+const HUMAN_CPD = 30;
+const ARCMIN_PER_PX = 60 / PX_PER_DEG;
+// A gaussian blur this wide (its standard deviation) per arcminute of finest gap: at that width a grating of
+// that gap keeps about 5% of its contrast, near the limit of seeing it.
+const SIGMA_PER_GAP = 0.78;
 const DAZZLE = 0.45; // how washed out a very rod-heavy eye looks in daylight
 const GRAIN_LEVEL = 0.006; // grain strength at daylight with a 4 mm pupil
-const GRAIN_MAX = 0.3;
 const GRAIN_PX = 50; // grain strength in screen levels (0..255) at full grain on a white pixel
 // UV and infrared (all simplified). UV counts once the range goes below 400 nm, fully at 320 nm;
 // infrared once it goes past 720 nm, fully at 790 nm.
@@ -83,24 +88,28 @@ const NOISE = (() => {
 
 /** Everything the renderer needs, worked out once from the settings and the Light slider. */
 export function sightParams(settings, light) {
+  if (settings.facets != null) return compoundParams(settings, light);
   const [ax, ay] = PUPIL_ASPECT[settings.pupilShape] ?? PUPIL_ASPECT.round;
   const tapetum = settings.tapetum === 'on';
   const tapetumGain = tapetum ? TAPETUM_GAIN : 1;
   // Light falls 10 000 times from day to night; the eye adapts, but not all the way.
   const illum = 10 ** (-4 * (1 - light));
-  // The Pupil setting is the pupil's size in daylight. A pupil wider than a human's closes in daylight until
-  // the eye gets about what a human eye gets, as far as its shape lets it close (a slit closes much further).
-  // As the light fades it opens steadily, to about twice as wide at night (as far as the eye can hold).
-  const widestMm = Math.min(settings.pupilMm * DARK_OPENING,
-    Math.max(settings.pupilMm, settings.eyeSizeMm * (PUPIL_MAX_PER_EYE_MM[settings.eyeShape] ?? PUPIL_MAX_PER_EYE_MM.round)));
-  const maxArea = widestMm ** 2 * ax * ay;
-  const dayArea = Math.min(settings.pupilMm ** 2 * ax * ay, DAY_PUPIL_MM ** 2 / tapetumGain ** (1 / SENS_POWER));
+  // The Pupil setting is the pupil's size in daylight; as the light fades it opens steadily to its widest.
+  // The widest is each animal's measured widest pupil (`darkPupilMm`), growing and shrinking with Eye size.
+  const refEye = settings.pupilRefEyeMm ?? settings.eyeSizeMm;
+  const widestMm = Math.max(settings.pupilMm, (settings.darkPupilMm ?? settings.pupilMm) * settings.eyeSizeMm / refEye);
+  // Areas as width × height. Wide open, every pupil is round (a cat's slit, an octopus's bar);
+  // closed down it takes its own shape, and a slit can close the furthest.
+  const maxArea = widestMm ** 2;
+  const dayArea = Math.min(maxArea, settings.pupilMm ** 2 * ax * ay);
   const darkness = -Math.log10(illum) / 4;
-  const wantArea = dayArea * (maxArea / dayArea) ** darkness;
   const closing = PUPIL_CLOSING[settings.pupilShape] ?? PUPIL_CLOSING.round;
-  const pupilScale = Math.sqrt(Math.min(1, Math.max(closing, wantArea / maxArea)));
-  const pupilW = widestMm * ax * pupilScale;
-  const pupilH = widestMm * ay * pupilScale;
+  const area = maxArea * Math.min(1, Math.max(closing, dayArea * (maxArea / dayArea) ** darkness / maxArea));
+  const opened = maxArea > dayArea ? Math.min(1, Math.max(0, Math.log(area / dayArea) / Math.log(maxArea / dayArea))) : 0;
+  const stretch = Math.sqrt(ax / ay) ** (1 - opened); // width ÷ height, square-rooted
+  const pupilW = Math.sqrt(area) * stretch;
+  const pupilH = Math.sqrt(area) / stretch;
+  const pupilScale = Math.sqrt(area / maxArea);
   const nightFor = s => Math.min(1, Math.max(0, -Math.log10(illum * s) / 4));
   const pupilSens = ((pupilW * pupilH) / 16) ** SENS_POWER * tapetumGain;
   // Rods and cones (eyes without them keep the plain model). Rods add sensitivity once the light is dim;
@@ -113,9 +122,15 @@ export function sightParams(settings, light) {
   const day = 1 - smoothstep(0.1, 0.4, nightFor(pupilSens));
   const sens = pupilSens * (1 + (rodGain - 1) * dim);
   const night = nightFor(sens);
+  // Finest detail in arcminutes. Cones are spaced further apart as rods take their place: spacing grows with the
+  // square root of the share of sensors that aren't cones (daylight only; at night the rods take over).
+  const cpd = (settings.acuityCpd ?? HUMAN_CPD) * settings.eyeSizeMm / (settings.acuityEyeMm ?? settings.eyeSizeMm);
+  const coneSpacing = ratio && settings.acuityRods != null
+    ? Math.sqrt((1 + ratio) / (1 + rodsPerCone(settings.acuityRods))) : 1;
+  const fineArcmin = (HUMAN_CPD / cpd) * (1 + (coneSpacing - 1) * day);
   // Photons from each point of the scene grow with the pupil's area in mm² (not its f-number): few photons, more grain.
   const photons = illum * ((pupilW * pupilH) / 16) * tapetumGain * (1 + (rodGain - 1) * dim);
-  const grain = Math.min(GRAIN_MAX, GRAIN_LEVEL / Math.sqrt(photons));
+  const grain = GRAIN_LEVEL / Math.sqrt(photons);
   // Nearsighted (refraction < 0): the eye is too strong and can't relax enough for far things.
   // Farsighted (> 0): it is too weak, so it can't strain enough for near things.
   const focusD = vergence(focusDistanceM(settings.focus));
@@ -138,10 +153,11 @@ export function sightParams(settings, light) {
     contrast: 1 - 0.45 * amblyopia,
     exposure: illum ** ADAPTATION * sens,
     glowGain: GLOW_LEVEL * illum ** -0.78 * sens,
-    detailBlur: (24 / settings.eyeSizeMm) ** 2,
+    fineArcmin,
+    acuityArcmin: HUMAN_CPD / (settings.acuityCpd ?? HUMAN_CPD),
     rodBlur: ratio ? (ratio / HUMAN_RODS_PER_CONE) ** 0.25 : 1,
-    coneBlur: CONE_BLUR * coneLack * day,
-    coneFade: Math.min(0.5, 0.5 * coneLack) * day,
+    // 1 = no color left at all, as with no cones.
+    coneFade: Math.min(1, 0.5 * coneLack) * day,
     dazzle: ratio ? DAZZLE * smoothstep(1.6, 2.4, Math.log10(ratio)) * day : 0,
     purkinje: ratio != null,
     // Color comes from the cones alone, so it fades with the light the cones get, not the rods.
@@ -156,6 +172,44 @@ export function sightParams(settings, light) {
     // Longer light spreads more through the same pupil, so infrared blurs more; a bigger pupil helps.
     irBlur: IR_BLUR * ir * Math.sqrt(4 / Math.max(0.5, Math.min(pupilW, pupilH))),
     // A warm body glows in infrared too, and sets off red-tuned sensors by mistake.
+    irNoise: ir * (settings.coldBlooded ? COLD_BLOODED_NOISE : 1),
+    color: colorStep(settings),
+    light,
+  };
+}
+
+const DEG = 180 / Math.PI;
+const FWHM_TO_SIGMA = 1 / 2.355; // a gaussian blur's standard deviation from its width at half height
+
+/**
+ * A compound eye: no pupil and no focusing (everything is in focus), so the light it gets is fixed
+ * (simplified: about what a human eye gets in daylight, without a pupil to open at night).
+ * Each facet averages the light over its acceptance angle into one dot; dots sit one facet angle apart.
+ */
+function compoundParams(settings, light) {
+  const illum = 10 ** (-4 * (1 - light));
+  const nightFor = s => Math.min(1, Math.max(0, -Math.log10(illum * s) / 4));
+  const night = nightFor(1);
+  const spacingDeg = facetAngle(settings.facets) * DEG;
+  const acceptDeg = facetAcceptance(settings.facets, settings.facetEyeMm) * DEG;
+  const grain = GRAIN_LEVEL / Math.sqrt(illum);
+  const reach = bandReach(settings);
+  const uv = reach.uv ? smoothstep(UV_FROM_NM, 320, reach.lo) : 0;
+  const ir = reach.ir ? smoothstep(IR_FROM_NM, 790, reach.hi) : 0;
+  return {
+    compound: { spacingPx: spacingDeg * PX_PER_DEG, blurPx: acceptDeg * PX_PER_DEG * FWHM_TO_SIGMA },
+    // The finest gap it makes out: one facet apart, or wider when each facet's view is blurrier than that.
+    detailArcmin: Math.max(spacingDeg, acceptDeg) * 60,
+    pupilW: 4, pupilH: 4, pupilScale: 1, tapetum: false, night,
+    focusM: Infinity, cylinderD: 0, cylinderDir: [1, 0], amblyopiaBlur: 0, contrast: 1,
+    exposure: illum ** ADAPTATION,
+    glowGain: GLOW_LEVEL * illum ** -0.78,
+    fineArcmin: 0, rodBlur: 1, coneFade: 0, dazzle: 0, purkinje: false, coneNight: night,
+    grain: grain < 0.01 ? 0 : grain,
+    tube: false, blindSpot: null,
+    uv, ir,
+    oneSensor: settings.peaks?.length === 1,
+    irBlur: IR_BLUR * ir,
     irNoise: ir * (settings.coldBlooded ? COLD_BLOODED_NOISE : 1),
     color: colorStep(settings),
     light,
@@ -192,7 +246,7 @@ export class SightRenderer {
     ictx?.clearRect(0, 0, VIEW_W, VIEW_H);
 
     scene.layers.forEach((layer, k) => {
-      const [along, across, angle] = blurFor(layer.distanceM, p);
+      const [along, across, angle] = p.compound ? [p.compound.blurPx, p.compound.blurPx, 0] : blurFor(layer.distanceM, p);
       this.paint(ctx => layer.draw(ctx, p.light));
       this.blurXY(bctx, along, across, angle);
       if (layer.glow) {
@@ -216,6 +270,7 @@ export class SightRenderer {
     if (p.dazzle) this.glare(p.dazzle);
     if (p.tube) this.tubeEdges();
     if (p.blindSpot) gap(this.work.getContext('2d'), p.blindSpot);
+    if (p.compound) mosaic(this.work.getContext('2d', { willReadFrequently: true }), p.compound.spacingPx);
 
     const octx = out.getContext('2d');
     octx.drawImage(this.work, 0, 0, out.width, out.height);
@@ -456,20 +511,24 @@ export class SightRenderer {
  * (across or up-down); astigmatism adds blur along its steep direction, at any slant.
  */
 export function blurFor(distanceM, p) {
+  // The eye-chart readout works in arcminutes: the blur drawn at true size is scaled back up for it.
+  const k = p.chart ? ARCMIN_PER_PX : 1;
   const axis = pupilMm => {
-    const defocus = Math.min(MAX_FOCUS_BLUR, 0.5 * defocusBlurPx(distanceM, p.focusM, pupilMm, PX_PER_DEG));
-    const diffraction = 1.2 / pupilMm;
-    // In the dark, rods pool their signals: more rods, blurrier.
-    const night = 1.4 * p.night ** 2 * p.rodBlur;
-    const scatter = p.tapetum ? 0.7 : 0;
-    return Math.hypot(defocus, diffraction, p.detailBlur, night, scatter, p.amblyopiaBlur, p.coneBlur);
+    const defocus = 0.5 * defocusBlurPx(distanceM, p.focusM, pupilMm, PX_PER_DEG);
+    // Light spreading through the pupil (diffraction), about 2.3 arcminutes ÷ pupil width in mm.
+    const fine = Math.hypot(p.fineArcmin, 2.3 / pupilMm) * (p.chart ? 1 : DEFOCUS_DISPLAY_GAIN * SIGMA_PER_GAP / ARCMIN_PER_PX);
+    // In the dark, rods pool their signals: more rods, blurrier (a human at night: about 20/160).
+    const night = 1.4 * p.night ** 2 * p.rodBlur * k;
+    // A night reflector scatters light sideways a little.
+    const scatter = (p.tapetum ? 0.7 : 0) * k;
+    return Math.hypot(defocus, fine, night, scatter, p.amblyopiaBlur);
   };
   const bx = axis(p.pupilW);
   const by = axis(p.pupilH);
   const [ux, uy] = p.cylinderDir;
   // The pupil's width along the steep direction sets how much the astigmatism blurs.
   const a = p.cylinderD
-    ? Math.min(MAX_FOCUS_BLUR, 0.5 * dioptersBlurPx(p.cylinderD, Math.hypot(p.pupilW * ux, p.pupilH * uy), PX_PER_DEG))
+    ? 0.5 * dioptersBlurPx(p.cylinderD, Math.hypot(p.pupilW * ux, p.pupilH * uy), PX_PER_DEG)
     : 0;
   // Add the two ovals (as spreads, like hypot does for circles), then find the long side and its angle.
   const xx = bx * bx + a * a * ux * ux;
@@ -483,16 +542,27 @@ export function blurFor(distanceM, p) {
 const CHART_M = 6; // an eye chart is read from 20 feet, about 6 m
 
 /**
- * How blurry an eye chart 6 m away looks, with the eye focused on it as well as it can
- * (nearsightedness may stop it). The same blur the view uses; compare it with a typical human eye's.
+ * How blurry an eye chart 6 m away looks, in arcminutes, with the eye focused on it as well as it can
+ * (nearsightedness may stop it). The same blur the view uses.
  */
-export function chartBlur(settings, light) {
+function chartBlur(settings, light) {
   const p = sightParams(settings, light);
   const errorD = (settings.refraction ?? 0) * REFRACTION_MAX_D;
   const nearestD = vergence(focusDistanceM(0));
   const d = Math.min(Math.max(vergence(CHART_M), -errorD, 0), nearestD - errorD);
-  const [along, across] = blurFor(CHART_M, { ...p, focusM: d < 0.05 ? Infinity : 1 / d });
+  const [along, across] = blurFor(CHART_M, { ...p, chart: true, focusM: d < 0.05 ? Infinity : 1 / d });
   return (along + across) / 2;
+}
+
+/**
+ * The smallest gap this eye makes out, in arcminutes. With its own default settings in daylight it is exactly
+ * its measured acuity; any blur the settings or the light add on top adds to it (blurs add as squares).
+ */
+export function smallestDetail(settings, light, defaults) {
+  const own = sightParams(settings, light);
+  if (own.detailArcmin != null) return own.detailArcmin;
+  const extra = chartBlur(settings, light) ** 2 - chartBlur(defaults, 1) ** 2;
+  return Math.sqrt(Math.max(0, own.acuityArcmin ** 2 + extra));
 }
 
 /** No light sensors where the nerve leaves the eye: a gap in the picture. */
@@ -591,6 +661,38 @@ function gap(ctx, s) {
   hole(ctx, 1);
   ctx.stroke();
   ctx.restore();
+}
+
+/**
+ * One dot per facet, in a honeycomb `spacing` px apart: each hexagon takes the color at its center
+ * (the picture is already blurred by each facet's view, so that is the facet's average).
+ * Big dots get a faint edge so the honeycomb shows; the brain doesn't see edges, it's a guide.
+ */
+function mosaic(ctx, spacing) {
+  const d = ctx.getImageData(0, 0, VIEW_W, VIEW_H).data;
+  const r = spacing / Math.sqrt(3); // hexagon corner radius, pointy side up
+  const rowH = 1.5 * r;
+  const edge = spacing >= 10;
+  ctx.lineWidth = 1;
+  for (let row = 0, y = 0; y < VIEW_H + r; row++, y = row * rowH) {
+    for (let x = row % 2 ? spacing / 2 : 0; x < VIEW_W + spacing; x += spacing) {
+      const px = Math.min(VIEW_W - 1, Math.max(0, Math.round(x)));
+      const py = Math.min(VIEW_H - 1, Math.max(0, Math.round(y)));
+      const i = (py * VIEW_W + px) * 4;
+      const color = `rgb(${d[i]},${d[i + 1]},${d[i + 2]})`;
+      ctx.beginPath();
+      for (let k = 0; k < 6; k++) {
+        const a = Math.PI / 6 + (k * Math.PI) / 3;
+        ctx[k ? 'lineTo' : 'moveTo'](x + r * Math.cos(a), y + r * Math.sin(a));
+      }
+      ctx.closePath();
+      ctx.fillStyle = color;
+      ctx.fill();
+      // A stroke in the same color closes the hairline seams between hexagons.
+      ctx.strokeStyle = edge ? 'rgba(0,0,0,0.18)' : color;
+      ctx.stroke();
+    }
+  }
 }
 
 function shoulder(x) {

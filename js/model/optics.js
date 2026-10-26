@@ -21,3 +21,17 @@ export function dioptersBlurPx(diopters, pupilMm, pxPerDeg) {
   const blurDiameterDeg = (pupilMm / 1000) * diopters * (180 / Math.PI);
   return 0.5 * blurDiameterDeg * pxPerDeg * DEFOCUS_DISPLAY_GAIN;
 }
+
+// --- Compound eyes ---
+// The facets cover a half ball, packed like a honeycomb. Simplified, after Land & Nilsson, "Animal Eyes".
+
+/** The angle between neighboring facets, in radians: half a ball (2π) shared out among `facets` hexagons. */
+export const facetAngle = facets => Math.sqrt((4 * Math.PI) / (Math.sqrt(3) * facets));
+
+/** One facet's width in micrometers, for a dome `eyeMm` across. */
+export const facetWidthUm = (facets, eyeMm) => (eyeMm / 2) * 1000 * facetAngle(facets);
+
+// How wide a cone of light one facet takes in (its acceptance angle), in radians: light spreading through the
+// tiny lens (wavelength ÷ width, at 0.5 µm) plus the width of the sensors at its focus (about 0.75 ÷ width).
+const ACCEPTANCE_UM = Math.hypot(0.5, 0.75);
+export const facetAcceptance = (facets, eyeMm) => ACCEPTANCE_UM / facetWidthUm(facets, eyeMm);

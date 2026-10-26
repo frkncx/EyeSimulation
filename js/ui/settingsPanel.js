@@ -1,6 +1,6 @@
 // The settings panel: big buttons and sliders built from data, showing only what fits the eye.
 import { escapeHtml } from './glossary.js';
-import { REFRACTION_MAX_D } from '../model/optics.js';
+import { REFRACTION_MAX_D, facetAngle } from '../model/optics.js';
 
 /** Focus slider 0..1 is spread evenly in focusing power: 0 = 10 cm, 1 = far away. */
 export function focusDistanceM(t) {
@@ -40,12 +40,16 @@ export function eyeConfig(type, example) {
   };
 }
 
-/** Slider limits for this eye; the pupil can't be wider than about a third of a round eye, half of a tube eye. */
+/**
+ * Slider limits for this eye. The pupil's range is each animal's own measured range, at its own eye size:
+ * it grows and shrinks with Eye size.
+ */
 export function rangeFor(setting, eye, settings) {
   let [min, max] = eye.allowed?.[setting.id] ?? [setting.min, setting.max];
-  if (setting.maxPerEyeMm) {
-    const perMm = settings.eyeShape === 'tube' ? setting.tubeMaxPerEyeMm : setting.maxPerEyeMm;
-    max = Math.min(max, Math.floor((settings.eyeSizeMm * perMm) / setting.step) * setting.step);
+  if (setting.id === 'pupilMm' && settings.pupilRefEyeMm) {
+    const k = settings.eyeSizeMm / settings.pupilRefEyeMm;
+    const snap = v => Math.max(setting.step, Math.round((v * k) / setting.step) * setting.step);
+    [min, max] = [snap(min), Math.max(snap(min), Math.floor((max * k) / setting.step) * setting.step)];
   }
   return [min, max];
 }
@@ -58,6 +62,7 @@ const fNumber = (pupilMm, eyeSizeMm) => (0.7 * eyeSizeMm) / pupilMm;
 function valueText(setting, value, settings) {
   if (setting.id === 'pupilMm') return `${value} mm · f/${fNumber(value, settings.eyeSizeMm).toFixed(1)}`;
   if (setting.id === 'focus') return focusText(value);
+  if (setting.id === 'facets') return `${value.toLocaleString('en-US')} · ${(facetAngle(value) * 180 / Math.PI).toFixed(1)}° apart`;
   if (setting.id === 'rods') return rodsText(value);
   // Written like a glasses prescription: myopia is minus, hyperopia plus.
   if (setting.id === 'refraction') return `${value > 0 ? '+' : value < 0 ? '−' : ''}${Math.abs(value * REFRACTION_MAX_D).toFixed(2)} D`;
