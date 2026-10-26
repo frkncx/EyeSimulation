@@ -41,11 +41,18 @@ export function eyeConfig(type, example) {
 }
 
 /**
- * Slider limits for this eye: the example's own range where it has one (the pupil's is each animal's measured
- * range, in data/eyes.json `allowed.pupilMm`), else the setting's.
+ * Slider limits for this eye: the example's own range where it has one, else the setting's. The pupil's is each
+ * animal's measured range (data/eyes.json `allowed.pupilMm`), measured at its own eye size: it grows and shrinks
+ * with Eye size, so it stays the same share of the eye.
  */
-export function rangeFor(setting, eye) {
-  return eye.allowed?.[setting.id] ?? [setting.min, setting.max];
+export function rangeFor(setting, eye, settings) {
+  let [min, max] = eye.allowed?.[setting.id] ?? [setting.min, setting.max];
+  if (setting.id === 'pupilMm' && settings?.pupilRefEyeMm) {
+    const k = settings.eyeSizeMm / settings.pupilRefEyeMm;
+    const snap = v => Math.max(setting.step, Math.round((v * k) / setting.step) * setting.step);
+    [min, max] = [snap(min), Math.max(snap(min), Math.floor((max * k) / setting.step) * setting.step)];
+  }
+  return [min, max];
 }
 
 const strengthText = v => (v < 0.34 ? 'Mild' : v < 0.67 ? 'Moderate' : 'Severe');

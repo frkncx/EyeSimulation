@@ -53,7 +53,7 @@
         { "id": "horizontal", "label": "Horizontal slit", "tip": "A wide, flat opening that sees a broad strip of the ground or sea, like in goats and octopus." }
       ] },
     { "id": "pupilMm", "label": "Pupil diameter", "type": "range", "min": 1, "max": 12.4, "step": 0.5, "unit": "mm",
-      "tip": "Pupil size in daylight, which sets how much light gets in. In the dark it opens wider: as far as measured for this animal (a cat's slit opens into a circle about 12 mm across). Wider is brighter, but only things at the focus distance stay sharp (shallow depth of field). Very narrow is sharp at every distance but dim, and blurs fine detail by diffraction. The f-number is the same idea as in a camera: eye focal length ÷ pupil width, so a smaller number lets in more light." },
+      "tip": "Pupil size in daylight, which sets how much light gets in. In the dark it opens wider: as far as measured for this animal (a cat's slit opens into a circle about 12 mm across). Both ends of the range grow and shrink with Eye size. Wider is brighter, but only things at the focus distance stay sharp (shallow depth of field). Very narrow is sharp at every distance but dim, and blurs fine detail by diffraction. The f-number is the same idea as in a camera: eye focal length ÷ pupil width, so a smaller number lets in more light." },
     { "id": "tapetum", "label": "Tapetum lucidum", "type": "choice",
       "tip": "Night reflector: a shiny layer that bounces light back through the retina. Brighter at night, but more glare.",
       "options": [

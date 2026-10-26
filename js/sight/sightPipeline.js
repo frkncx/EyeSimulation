@@ -95,8 +95,9 @@ export function sightParams(settings, light) {
   // Light falls 10 000 times from day to night; the eye adapts, but not all the way.
   const illum = 10 ** (-4 * (1 - light));
   // The Pupil setting is the pupil's size in daylight; as the light fades it opens steadily to its widest.
-  // The widest is each animal's measured widest pupil (`darkPupilMm`); Eye size doesn't change it.
-  const widestMm = Math.max(settings.pupilMm, settings.darkPupilMm ?? settings.pupilMm);
+  // The widest is each animal's measured widest pupil (`darkPupilMm`), growing and shrinking with Eye size.
+  const refEye = settings.pupilRefEyeMm ?? settings.eyeSizeMm;
+  const widestMm = Math.max(settings.pupilMm, (settings.darkPupilMm ?? settings.pupilMm) * settings.eyeSizeMm / refEye);
   // Areas as width × height. Wide open, every pupil is round (a cat's slit, an octopus's bar);
   // closed down it takes its own shape, and a slit can close the furthest.
   const maxArea = widestMm ** 2;

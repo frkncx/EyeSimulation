@@ -56,6 +56,8 @@ async function main() {
   // An example's measured acuity holds for its own eye size and rods: remember them, so changing either changes it.
   for (const { defaults } of data.examples) {
     if (defaults.acuityCpd != null) Object.assign(defaults, { acuityEyeMm: defaults.eyeSizeMm, acuityRods: defaults.rods });
+    // Likewise its measured pupil range, for its own eye size.
+    if (defaults.darkPupilMm != null) defaults.pupilRefEyeMm = defaults.eyeSizeMm;
   }
   const settingById = Object.fromEntries(data.settings.map(s => [s.id, s]));
 
@@ -73,7 +75,7 @@ async function main() {
   const pupilSetting = settingById.pupilMm;
   const changeSetting = (key, value) => store.set(s => {
     const settings = { ...s.settings, [key]: value };
-    // Keep the pupil inside this eye's measured range.
+    // The pupil's range grows and shrinks with the eye: keep the pupil inside it.
     const [minPupil, maxPupil] = rangeFor(pupilSetting, configFor(s), settings);
     settings.pupilMm = Math.min(maxPupil, Math.max(minPupil, settings.pupilMm));
     // The color buttons and the spectrum bar agree: a new number of sensors gets new peaks.
