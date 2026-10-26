@@ -15,7 +15,7 @@ import { defocusGapArcmin, dioptersGapArcmin, vergence, REFRACTION_MAX_D, facetA
 import { colorStep, shiftColors, ROD_WEIGHTS } from './colorVision.js';
 import { bandReach, UV_FROM_NM, IR_FROM_NM } from '../model/spectrum.js';
 import { focusDistanceM, rodsPerCone } from '../ui/settingsPanel.js';
-import { PUPIL_ASPECT } from '../eye3d/cameraEye.js';
+import { PUPIL_ASPECT, widestPupilMm, fitPupil } from '../eye3d/cameraEye.js';
 import { SCENE_W, SCENE_H } from '../scenes/scenes.js';
 
 // The view's shape, and the size the canvas starts at. It is drawn at whatever size it is shown, with every
@@ -136,8 +136,7 @@ export function sightParams(settings, light) {
   const illum = 10 ** (-4 * (1 - light));
   // The Pupil setting is the pupil's size in daylight; as the light fades it opens steadily to its widest.
   // The widest is each animal's measured widest pupil (`darkPupilMm`), growing and shrinking with Eye size.
-  const refEye = settings.pupilRefEyeMm ?? settings.eyeSizeMm;
-  const widestMm = Math.max(settings.pupilMm, (settings.darkPupilMm ?? settings.pupilMm) * settings.eyeSizeMm / refEye);
+  const widestMm = widestPupilMm(settings);
   // Areas as width × height. Wide open, every pupil is round (a cat's slit, an octopus's bar);
   // closed down it takes its own shape, and a slit can close the furthest.
   const maxArea = widestMm ** 2;
@@ -147,8 +146,8 @@ export function sightParams(settings, light) {
   const area = maxArea * Math.min(1, Math.max(closing, dayArea * (maxArea / dayArea) ** darkness / maxArea));
   const opened = maxArea > dayArea ? Math.min(1, Math.max(0, Math.log(area / dayArea) / Math.log(maxArea / dayArea))) : 0;
   const stretch = Math.sqrt(ax / ay) ** (1 - opened); // width ÷ height, square-rooted
-  const pupilW = Math.sqrt(area) * stretch;
-  const pupilH = Math.sqrt(area) / stretch;
+  // A slit is no longer than the widest the pupil opens; past that it widens, keeping its area.
+  const [pupilW, pupilH] = fitPupil(Math.sqrt(area) * stretch, Math.sqrt(area) / stretch, widestMm);
   const pupilScale = Math.sqrt(area / maxArea);
   const nightFor = s => Math.min(1, Math.max(0, -Math.log10(illum * s) / 4));
   const pupilSens = ((pupilW * pupilH) / 16) ** SENS_POWER * tapetumGain;

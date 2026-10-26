@@ -73,9 +73,33 @@ const TUBE = { backR: 10.5, center: -1.5, rim: 7.2, limbusZ: 9.5, corneaR: 9, ir
 /** Width and height of each pupil shape, relative to a round pupil of the same size. */
 export const PUPIL_ASPECT = { round: [1, 1], slit: [0.35, 1.3], horizontal: [1.3, 0.4] };
 
-function pupilRadii(shape, r, irisR) {
-  const [ax, ay] = PUPIL_ASPECT[shape] ?? PUPIL_ASPECT.round;
-  return [Math.min(r * ax, irisR - 0.4), Math.min(r * ay, irisR - 0.4)];
+/**
+ * The widest this eye's pupil opens, in mm: the animal's measured widest (`darkPupilMm`, at its own eye size
+ * `pupilRefEyeMm`), growing and shrinking with Eye size; never less than the daylight setting.
+ */
+export function widestPupilMm({ pupilMm, darkPupilMm, eyeSizeMm, pupilRefEyeMm }) {
+  return Math.max(pupilMm, (darkPupilMm ?? pupilMm) * eyeSizeMm / (pupilRefEyeMm ?? eyeSizeMm));
+}
+
+/**
+ * Width and height in mm of a `w` × `h` pupil that can't be longer than the widest the pupil opens: a hole in
+ * the iris is never longer than the iris's widest opening. Past that it widens instead, keeping its area
+ * (and so the light it lets in).
+ */
+export function fitPupil(w, h, widestMm) {
+  if (h > widestMm) return [Math.min(widestMm, (w * h) / widestMm), widestMm];
+  if (w > widestMm) return [widestMm, Math.min(widestMm, (w * h) / widestMm)];
+  return [w, h];
+}
+
+/**
+ * The daylight pupil's radii in model units (`scale` mm per unit). The model's iris is human-sized, so a pupil
+ * wider than it is drawn just inside its edge.
+ */
+function pupilRadii(settings, scale, irisR) {
+  const [ax, ay] = PUPIL_ASPECT[settings.pupilShape] ?? PUPIL_ASPECT.round;
+  const [w, h] = fitPupil(settings.pupilMm * ax, settings.pupilMm * ay, widestPupilMm(settings));
+  return [Math.min(w / 2 / scale, irisR - 0.4), Math.min(h / 2 / scale, irisR - 0.4)];
 }
 
 /** Iris: a disc with a pupil-shaped hole. Texture coordinates span the whole disc. */
@@ -161,7 +185,7 @@ export function buildCameraEye({
   eyeSizeMm = 24, pupilMm = 8, pupilShape = 'round', focus = 1, retina = 'away', tapetum = 'off', irisColor = '#6b4a2e',
   refraction = 0, astigmatism = 'off', cylinderD = 1.5, axisDeg = 180, eyeShape = 'round', rods = null,
   peaks = null, lensCutoffNm = null, uvLens = 'none', rays = { uv: false, ir: false }, lensFocus = 'shape',
-  spots = [{ part: 'fovea' }],
+  spots = [{ part: 'fovea' }], darkPupilMm, pupilRefEyeMm,
 } = {}) {
   const reach = bandReach({ peaks, lensCutoffNm, uvLens });
   const group = new THREE.Group();
@@ -176,7 +200,7 @@ export function buildCameraEye({
   const center = new THREE.Vector3(0, 0, cz);
   const rimR = tube ? TUBE.rim : 5.8; // where the cornea meets the white
   const irisR = tube ? TUBE.iris : IRIS_R;
-  const [pupilRx, pupilRy] = pupilRadii(pupilShape, pupilMm / 2 / scale, irisR);
+  const [pupilRx, pupilRy] = pupilRadii({ pupilMm, pupilShape, darkPupilMm, eyeSizeMm, pupilRefEyeMm }, scale, irisR);
   const wiringInFront = retina === 'away';
   const hasTapetum = tapetum === 'on';
 
