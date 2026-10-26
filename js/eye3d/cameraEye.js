@@ -157,7 +157,7 @@ function rayArrow(part, points, color, faint) {
  * coordinates: { part, position, side: 'left' | 'right', inner: true if only seen when cut open }.
  */
 export function buildCameraEye({
-  eyeSizeMm = 24, pupilMm = 4, pupilShape = 'round', focus = 1, retina = 'away', tapetum = 'off', irisColor = '#6b4a2e',
+  eyeSizeMm = 24, pupilMm = 8, pupilShape = 'round', focus = 1, retina = 'away', tapetum = 'off', irisColor = '#6b4a2e',
   refraction = 0, astigmatism = 'off', cylinderD = 1.5, axisDeg = 180, eyeShape = 'round', rods = null,
   peaks = null, lensCutoffNm = null, uvLens = 'none', rays = { uv: false, ir: false },
 } = {}) {

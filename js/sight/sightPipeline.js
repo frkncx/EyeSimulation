@@ -30,6 +30,13 @@ export const BLIND_SPOT = {
 };
 
 const GLOW_LEVEL = 0.0008; // how bright lamps are compared with daylight
+const TAPETUM_GAIN = 1.8;
+const SENS_POWER = 0.6; // brightness grows a little slower than pupil area
+// The pupil: a human one is about 4 mm in daylight (2–4 mm in sunshine) and opens to about 8 mm in the dark.
+// How far each shape can close, as a share of its widest area: round about 1/15, a slit 1/135
+// (Banks et al. 2015), a horizontal slit about 0.15 (octopus).
+const DAY_PUPIL_MM = 4;
+const PUPIL_CLOSING = { round: 1 / 15, slit: 1 / 135, horizontal: 0.15 };
 // How much of the light drop still shows after the eye adapts: 0 = fully adapted, 1 = not at all.
 // At 0.6 a night without light sources is about 0.4% of day brightness: close to black, so only lamps stand out.
 const ADAPTATION = 0.6;
@@ -68,13 +75,23 @@ const NOISE = (() => {
 /** Everything the renderer needs, worked out once from the settings and the Light slider. */
 export function sightParams(settings, light) {
   const [ax, ay] = PUPIL_ASPECT[settings.pupilShape] ?? PUPIL_ASPECT.round;
-  const pupilW = settings.pupilMm * ax;
-  const pupilH = settings.pupilMm * ay;
   const tapetum = settings.tapetum === 'on';
+  const tapetumGain = tapetum ? TAPETUM_GAIN : 1;
   // Light falls 10 000 times from day to night; the eye adapts, but not all the way.
   const illum = 10 ** (-4 * (1 - light));
+  // The Pupil setting is the widest pupil, in the dark. In daylight the pupil closes until the eye gets
+  // about what a human eye gets, as far as its shape lets it close (a slit closes much further); as the light
+  // fades it opens steadily, to its widest at night.
+  const maxArea = settings.pupilMm ** 2 * ax * ay;
+  const dayArea = DAY_PUPIL_MM ** 2 / tapetumGain ** (1 / SENS_POWER);
+  const darkness = -Math.log10(illum) / 4;
+  const wantArea = dayArea * Math.max(1, maxArea / dayArea) ** darkness;
+  const closing = PUPIL_CLOSING[settings.pupilShape] ?? PUPIL_CLOSING.round;
+  const pupilScale = Math.sqrt(Math.min(1, Math.max(closing, wantArea / maxArea)));
+  const pupilW = settings.pupilMm * ax * pupilScale;
+  const pupilH = settings.pupilMm * ay * pupilScale;
   const nightFor = s => Math.min(1, Math.max(0, -Math.log10(illum * s) / 4));
-  const pupilSens = ((pupilW * pupilH) / 16) ** 0.6 * (tapetum ? 1.8 : 1);
+  const pupilSens = ((pupilW * pupilH) / 16) ** SENS_POWER * tapetumGain;
   // Rods and cones (eyes without them keep the plain model). Rods add sensitivity once the light is dim;
   // an eye with fewer cones than a human's is less sharp and less colorful in daylight, and a very
   // rod-heavy one is dazzled by bright light. All simplified.
@@ -86,7 +103,7 @@ export function sightParams(settings, light) {
   const sens = pupilSens * (1 + (rodGain - 1) * dim);
   const night = nightFor(sens);
   // Photons from each point of the scene grow with the pupil's area in mm² (not its f-number): few photons, more grain.
-  const photons = illum * ((pupilW * pupilH) / 16) * (tapetum ? 1.8 : 1) * (1 + (rodGain - 1) * dim);
+  const photons = illum * ((pupilW * pupilH) / 16) * tapetumGain * (1 + (rodGain - 1) * dim);
   const grain = Math.min(GRAIN_MAX, GRAIN_LEVEL / Math.sqrt(photons));
   // Nearsighted (refraction < 0): the eye is too strong and can't relax enough for far things.
   // Farsighted (> 0): it is too weak, so it can't strain enough for near things.
@@ -98,7 +115,7 @@ export function sightParams(settings, light) {
   const uv = reach.uv ? smoothstep(UV_FROM_NM, 320, reach.lo) : 0;
   const ir = reach.ir ? smoothstep(IR_FROM_NM, 790, reach.hi) : 0;
   return {
-    pupilW, pupilH, tapetum, night,
+    pupilW, pupilH, pupilScale, tapetum, night,
     focusM: eyeFocusD < 0.05 ? Infinity : 1 / eyeFocusD,
     // An oval cornea focuses its steep direction, at a right angle to the prescription axis, more strongly.
     // The axis is measured as seen facing the eye, and the view looks out of it (mirrored), so in view
@@ -350,11 +367,6 @@ export class SightRenderer {
         gr += (grey - gr) * fade;
         b += (grey - b) * fade;
       }
-      if (p.dazzle) {
-        r += (1 - r) * p.dazzle * Math.min(1, r * 2);
-        gr += (1 - gr) * p.dazzle * Math.min(1, gr * 2);
-        b += (1 - b) * p.dazzle * Math.min(1, b * 2);
-      }
       r = shoulder(r);
       gr = shoulder(gr);
       b = shoulder(b);
@@ -396,7 +408,10 @@ export class SightRenderer {
     ctx.restore();
   }
 
-  /** A tube eye sees a narrower view: the edges go soft, then dark. */
+  /**
+   * A tube eye sees a narrower field than a round one, but still wider than this 60° view,
+   * so only the far corners go a little soft and dim.
+   */
   tubeEdges() {
     const ctx = this.work.getContext('2d');
     const tctx = this.squash.getContext('2d');
@@ -417,10 +432,10 @@ export class SightRenderer {
       c.restore();
     };
     tctx.globalCompositeOperation = 'destination-in';
-    oval(tctx, ring(tctx, 0.55, 0.85, [[0, 'rgba(0,0,0,0)'], [1, '#000']]));
+    oval(tctx, ring(tctx, 0.95, 1.4, [[0, 'rgba(0,0,0,0)'], [1, '#000']]));
     tctx.globalCompositeOperation = 'source-over';
     ctx.drawImage(this.squash, 0, 0);
-    oval(ctx, ring(ctx, 0.72, 1.12, [[0, 'rgba(4,4,6,0)'], [0.6, 'rgba(4,4,6,0.85)'], [1, '#040406']]));
+    oval(ctx, ring(ctx, 1, 1.45, [[0, 'rgba(4,4,6,0)'], [1, 'rgba(4,4,6,0.5)']]));
   }
 }
 
@@ -470,18 +485,66 @@ export function chartBlur(settings, light) {
 }
 
 /** No light sensors where the nerve leaves the eye: a gap in the picture. */
+// Canvases for filling in the blind spot: the area around it, one blur of it, and all the blurs together.
+const AROUND = createCanvas(1, 1);
+const FILL = createCanvas(1, 1);
+const SPREAD = createCanvas(1, 1);
+
+/**
+ * The brain fills the blind spot in with what's around it, so anything inside it disappears.
+ * The surroundings, with the spot cut out, are blurred into the hole (each pixel takes the average
+ * of the nearby pixels that are still there). A thin dashed line marks where it is.
+ */
 function gap(ctx) {
   const s = BLIND_SPOT;
+  const cx = s.x * VIEW_W, cy = s.y * VIEW_H, rx = s.rx * VIEW_W, ry = s.ry * VIEW_H;
+  const x0 = Math.round(cx - rx * 2.5), y0 = Math.round(cy - ry * 2.5);
+  const w = Math.round(rx * 5), h = Math.round(ry * 5);
+  const hole = (c, k) => {
+    c.beginPath();
+    c.ellipse(cx - x0, cy - y0, rx * k, ry * k, 0, 0, Math.PI * 2);
+  };
+  AROUND.width = SPREAD.width = w;
+  AROUND.height = SPREAD.height = h;
+  const actx = AROUND.getContext('2d');
+  actx.drawImage(ctx.canvas, x0, y0, w, h, 0, 0, w, h);
+  actx.globalCompositeOperation = 'destination-out';
+  hole(actx, 1.05);
+  actx.fill();
+  const sctx = SPREAD.getContext('2d', { willReadFrequently: true });
+  // Fine blur first, so the edge of the spot takes the colors right next to it; wider blurs fill what's left.
+  // Read back without the see-through, each pixel is the average color of the nearby pixels still there.
+  const fill = FILL;
+  fill.width = w;
+  fill.height = h;
+  const fctx = fill.getContext('2d', { willReadFrequently: true });
+  for (const k of [0.2, 0.3, 0.45, 0.65, 1]) {
+    fctx.clearRect(0, 0, w, h);
+    drawBlurred(fctx, AROUND, Math.max(rx, ry) * k);
+    const img = fctx.getImageData(0, 0, w, h);
+    // Below about 6% coverage the color is too rough to trust; a wider blur fills it instead.
+    for (let i = 3; i < img.data.length; i += 4) img.data[i] = img.data[i] >= 16 ? 255 : 0;
+    fctx.putImageData(img, 0, 0);
+    sctx.globalCompositeOperation = 'destination-over';
+    sctx.drawImage(fill, 0, 0);
+  }
+  sctx.globalCompositeOperation = 'source-over';
+  // Keep only the inside of the spot, with a soft edge.
+  sctx.globalCompositeOperation = 'destination-in';
+  sctx.setTransform(rx * 1.1, 0, 0, ry * 1.1, cx - x0, cy - y0);
+  const g = sctx.createRadialGradient(0, 0, 0, 0, 0, 1);
+  g.addColorStop(0.8, '#000');
+  g.addColorStop(1, 'rgba(0,0,0,0)');
+  sctx.fillStyle = g;
+  sctx.fillRect(-1, -1, 2, 2);
+  ctx.drawImage(SPREAD, x0, y0);
   ctx.save();
-  ctx.setTransform(s.rx * VIEW_W, 0, 0, s.ry * VIEW_H, s.x * VIEW_W, s.y * VIEW_H);
-  const g = ctx.createRadialGradient(0, 0, 0, 0, 0, 1);
-  g.addColorStop(0, '#1b1d22');
-  g.addColorStop(0.8, '#1b1d22');
-  g.addColorStop(1, 'rgba(27,29,34,0)');
-  ctx.fillStyle = g;
-  ctx.beginPath();
-  ctx.arc(0, 0, 1, 0, Math.PI * 2);
-  ctx.fill();
+  ctx.translate(x0, y0);
+  ctx.setLineDash([4, 4]);
+  ctx.lineWidth = 1.5;
+  ctx.strokeStyle = 'rgba(255,255,255,0.75)';
+  hole(ctx, 1);
+  ctx.stroke();
   ctx.restore();
 }
 

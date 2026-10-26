@@ -36,21 +36,42 @@ const OPPONENT = [
   [1.2, -1.6, 0.4],
 ];
 
+const sum = row => row[0] + row[1] + row[2];
+/** How strongly each channel (brightness, yellow-blue, red-green) responds to white, from sensor rows S, M, L. */
+const channelsOf = (S, M, L) => OPPONENT.map(([wl, wm, ws]) => [0, 1, 2].map(k => wl * L[k] + wm * M[k] + ws * S[k]));
+const HUMAN_ROWS = sensorRows(HUMAN.peaks, HUMAN.lensCutoffNm);
+const HUMAN_WHITE = channelsOf(...HUMAN_ROWS).map(sum);
+const HUMAN_SHORT_WHITE = sum(HUMAN_ROWS[0]);
+// Keeps a channel's scale from collapsing: never far below the human's (a smooth floor, so colors
+// don't jump while a peak is dragged).
+const FLOOR = 0.8, FLOOR_SOFT = 0.08;
+const floored = r => FLOOR + FLOOR_SOFT * Math.log(1 + Math.exp((r - FLOOR) / FLOOR_SOFT));
+
 /**
- * Brightness, yellow-blue and red-green (3×3, on linear RGB) from the sensors, each scaled so white gives 1.
+ * Brightness, yellow-blue and red-green (3×3, on linear RGB) from the sensors, so white gives 1 in each.
  * Two sensors fill short and long, with the middle merged into the long.
- * A channel with nothing to compare (one sensor) copies brightness, so the picture has no color.
+ * The short sensor is first scaled to respond to white like a human's, as eyes adjust to the light they get.
+ * Each color channel is then divided by how strongly it responds to white (as in Machado et al. 2009),
+ * but by the size only, and never much less than a human's: a sensor set far from the human's would
+ * otherwise flip a channel (sky turning yellow) or blow it up.
+ * A channel with nothing to compare (one sensor) comes out grey.
  */
 function opponent(peaks, cutoff) {
   const rows = sensorRows([...peaks].sort((a, b) => a - b), cutoff);
   const n = rows.length;
+  if (n > 1) {
+    const gain = HUMAN_SHORT_WHITE / sum(rows[0]);
+    rows[0] = rows[0].map(v => v * gain);
+  }
   const [S, M, L] = n === 1 ? [rows[0], rows[0], rows[0]] : n === 2 ? [rows[0], rows[1], rows[1]] : rows;
-  const channels = OPPONENT.map(([wl, wm, ws]) => [0, 1, 2].map(k => wl * L[k] + wm * M[k] + ws * S[k]));
-  const scaled = channels.map(c => {
-    const white = c[0] + c[1] + c[2];
-    return Math.abs(white) < 1e-9 * Math.abs(channels[0][0] + channels[0][1] + channels[0][2]) ? null : c.map(v => v / white);
+  const channels = channelsOf(S, M, L);
+  const whites = channels.map(sum);
+  const bright = channels[0].map(v => v / whites[0]);
+  return channels.flatMap((c, i) => {
+    if (i === 0) return bright;
+    const scale = HUMAN_WHITE[i] * floored(Math.abs(whites[i] / HUMAN_WHITE[i]));
+    return c.map((v, k) => (v - whites[i] * bright[k]) / scale + bright[k]);
   });
-  return scaled.flatMap(c => c ?? scaled[0]);
 }
 
 function invert3(m) {
