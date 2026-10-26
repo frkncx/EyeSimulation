@@ -98,6 +98,9 @@ export class EyeStage {
     this.scene.add(built.group);
     this.lastView = null;
     this.setCut(this.cut);
+    // Check which new labels are hidden behind the eye before the first frame, so they don't flash up.
+    built.group.updateMatrixWorld(true);
+    this.updateOcclusion();
   }
 
   setCut(amount) {
