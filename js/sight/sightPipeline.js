@@ -134,13 +134,18 @@ export function sightParams(settings, light) {
   const { w: pupilW, h: pupilH, area, maxArea } = pupilSizeMm(settings, light);
   const pupilScale = Math.sqrt(area / maxArea);
   const nightFor = s => Math.min(1, Math.max(0, -Math.log10(illum * s) / 4));
-  // In daylight the eye adapts to the light its own daylight pupil lets in, so every eye's daylight view is
-  // normally exposed: the daylight pupil's size and the night reflector change sharpness, not brightness.
-  // As the light falls that adaptation fades, and the widest pupil, rods and reflector set the brightness.
-  const daylight = pupilSizeMm(settings, 1);
-  const daySens = ((daylight.w * daylight.h) / 16) ** SENS_POWER * tapetumGain;
-  const adapted = daySens ** -(light ** TUNING.DAY_ADAPTATION_POWER);
-  const pupilSens = ((pupilW * pupilH) / 16) ** SENS_POWER * tapetumGain * adapted;
+  // In daylight the retina is adapted to the light the example's own daylight pupil (`adaptedPupilMm`, its
+  // default) and night reflector let in, so at its defaults every eye's daylight view is normally exposed.
+  // A pupil set wider than that is brighter and glarier, like after dilating eye drops; narrower is dimmer.
+  // As the light falls the adaptation fades, and the widest pupil, rods and reflector set the brightness.
+  const daySensAt = pupilMm => {
+    const d = pupilSizeMm({ ...settings, pupilMm }, 1);
+    return ((d.w * d.h) / 16) ** SENS_POWER * tapetumGain;
+  };
+  const adaptedSens = daySensAt(settings.adaptedPupilMm ?? settings.pupilMm);
+  const adapting = light ** TUNING.DAY_ADAPTATION_POWER;
+  const pupilSens = ((pupilW * pupilH) / 16) ** SENS_POWER * tapetumGain * adaptedSens ** -adapting;
+  const dilated = Math.max(0, Math.log2(daySensAt(settings.pupilMm) / adaptedSens));
   // Rods and cones (eyes without them keep the plain model). Rods add sensitivity once the light is dim;
   // an eye with fewer cones than a human's is less sharp and less colorful in daylight, and a very
   // rod-heavy one is dazzled by bright light. All simplified.
@@ -189,6 +194,8 @@ export function sightParams(settings, light) {
     // 1 = no color left at all, as with no cones.
     coneFade: Math.min(1, 0.5 * coneLack) * day,
     dazzle: ratio ? DAZZLE * smoothstep(1.6, 2.4, Math.log10(ratio)) * day : 0,
+    // A haze's opacity can't pass 1.
+    dilationGlare: Math.min(1, TUNING.DILATION_GLARE * dilated * adapting),
     purkinje: ratio != null,
     // Color comes from the cones alone, so it fades with the light the cones get, not the rods.
     // An eye with few cones loses color sooner.
@@ -327,6 +334,8 @@ export class SightRenderer {
     if (p.tapetum) this.glare(0.25 + 0.45 * p.night);
     // Rods are overwhelmed by bright light: a very rod-heavy eye is dazzled.
     if (p.dazzle) this.glare(p.dazzle);
+    // A pupil opened wider than the eye is adapted to lets in too much light.
+    if (p.dilationGlare) this.glare(p.dilationGlare);
     if (p.tube) this.tubeEdges();
     const spot = blindSpotInView(p.blindSpot, this.view);
     if (spot) gap(this.work.getContext('2d'), spot);

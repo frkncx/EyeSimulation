@@ -5,4 +5,7 @@ export const TUNING = {
   // The share cancelled is light ** DAY_ADAPTATION_POWER: all of it in full daylight (light 1), none at full
   // night (light 0). At 1 it fades evenly along the Light slider, which is a log scale of the light.
   DAY_ADAPTATION_POWER: 1,
+  // Glare haze from a pupil opened wider than the eye is adapted to, per doubling of the light it lets in
+  // (in full daylight; it fades with the adaptation).
+  DILATION_GLARE: 0.15,
 };

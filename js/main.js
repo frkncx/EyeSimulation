@@ -58,6 +58,8 @@ async function main() {
     if (defaults.acuityCpd != null) Object.assign(defaults, { acuityEyeMm: defaults.eyeSizeMm, acuityRods: defaults.rods });
     // Likewise its measured pupil range, for its own eye size.
     if (defaults.darkPupilMm != null) defaults.pupilRefEyeMm = defaults.eyeSizeMm;
+    // Its retina is adapted to the daylight its own daylight pupil lets in.
+    if (defaults.pupilMm != null) defaults.adaptedPupilMm = defaults.pupilMm;
   }
   const settingById = Object.fromEntries(data.settings.map(s => [s.id, s]));
 
