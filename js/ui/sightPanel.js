@@ -2,7 +2,7 @@
 // and below it the eye's own settings that belong with the scene (Focus), filled in by main.js.
 import { escapeHtml } from './glossary.js';
 import { SCENES, imageScene, drawPlain } from '../scenes/scenes.js';
-import { SightRenderer, sightParams, chartBlur, VIEW_W, VIEW_H, BLIND_SPOT } from '../sight/sightPipeline.js';
+import { SightRenderer, sightParams, chartBlur, VIEW_W, VIEW_H } from '../sight/sightPipeline.js';
 
 const THUMB_W = 128;
 const THUMB_H = 80;
@@ -87,8 +87,6 @@ export function createSight(root, { parts, reference, onScene, onLight, onImage 
   const missing = root.querySelector('.sight-missing');
   const viewNotes = root.querySelector('.sight-notes');
   const sharpness = root.querySelector('.sharpness');
-  blindTag.style.left = `${BLIND_SPOT.x * 100}%`;
-  blindTag.style.top = `${(BLIND_SPOT.y + BLIND_SPOT.ry) * 100 + 2}%`;
 
   let current = null;
   root.addEventListener('click', e => {
@@ -149,6 +147,12 @@ export function createSight(root, { parts, reference, onScene, onLight, onImage 
       const text = sharpnessText(chartBlur(s.settings, s.light) / referenceBlur);
       for (const dd of sharpness.querySelectorAll('[data-sharpness]')) dd.textContent = text[dd.dataset.sharpness];
       blindTag.hidden = !p.blindSpot;
+      if (p.blindSpot) {
+        // Under the spot, or above it when it reaches the bottom of the view.
+        const below = p.blindSpot.y + p.blindSpot.ry < 0.85;
+        blindTag.style.left = `${Math.min(92, Math.max(8, p.blindSpot.x * 100))}%`;
+        blindTag.style.top = `${(below ? Math.max(0, p.blindSpot.y + p.blindSpot.ry) * 100 + 2 : (p.blindSpot.y - p.blindSpot.ry) * 100 - 10)}%`;
+      }
       const shift = p.color?.kind === 'shift' ? p.color.channels : 0;
       // UV or infrared reaching the eye, in a scene that has them (photos don't; underwater has no infrared).
       const photo = s.sceneId === 'own';

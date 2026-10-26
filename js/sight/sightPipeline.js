@@ -21,13 +21,19 @@ export const VIEW_H = 400;
 const FIELD_DEG = 60; // the view spans 60° across
 const PX_PER_DEG = VIEW_W / FIELD_DEG;
 
-/** Where the blind spot falls, as fractions of the view: 15° out from the center, a little below. */
-export const BLIND_SPOT = {
-  x: 0.5 + 15 / FIELD_DEG,
-  y: 0.5 + 1.5 / (FIELD_DEG * VIEW_H / VIEW_W),
-  rx: 2.75 / FIELD_DEG,
-  ry: 3.75 / (FIELD_DEG * VIEW_H / VIEW_W),
-};
+// Where the blind spot falls, in degrees from the center: out to the side (toward the ear; negative is toward
+// the nose), down (negative is up), and its width and height. A human's is 15° out and a little below.
+// An eye can set its own (`blindSpot` in its defaults).
+const HUMAN_BLIND_SPOT = { outDeg: 15, downDeg: 1.5, wDeg: 5.5, hDeg: 7.5 };
+const FIELD_H_DEG = FIELD_DEG * VIEW_H / VIEW_W;
+
+/** The blind spot as fractions of the view: center x, y and radii rx, ry. */
+const blindSpotFor = ({ outDeg, downDeg, wDeg, hDeg } = HUMAN_BLIND_SPOT) => ({
+  x: 0.5 + outDeg / FIELD_DEG,
+  y: 0.5 + downDeg / FIELD_H_DEG,
+  rx: wDeg / 2 / FIELD_DEG,
+  ry: hDeg / 2 / FIELD_H_DEG,
+});
 
 const GLOW_LEVEL = 0.0008; // how bright lamps are compared with daylight
 const TAPETUM_GAIN = 1.8;
@@ -36,6 +42,9 @@ const SENS_POWER = 0.6; // brightness grows a little slower than pupil area
 // How far each shape can close, as a share of its widest area: round about 1/15, a slit 1/135
 // (Banks et al. 2015), a horizontal slit about 0.15 (octopus).
 const DAY_PUPIL_MM = 4;
+const DARK_OPENING = 2; // in the dark a pupil opens to about twice its daylight width
+// The widest pupil an eye can hold, per mm of eye size (as the Pupil diameter setting's own limit).
+const PUPIL_MAX_PER_EYE_MM = { round: 0.35, tube: 0.5 };
 const PUPIL_CLOSING = { round: 1 / 15, slit: 1 / 135, horizontal: 0.15 };
 // How much of the light drop still shows after the eye adapts: 0 = fully adapted, 1 = not at all.
 // At 0.6 a night without light sources is about 0.4% of day brightness: close to black, so only lamps stand out.
@@ -79,17 +88,19 @@ export function sightParams(settings, light) {
   const tapetumGain = tapetum ? TAPETUM_GAIN : 1;
   // Light falls 10 000 times from day to night; the eye adapts, but not all the way.
   const illum = 10 ** (-4 * (1 - light));
-  // The Pupil setting is the widest pupil, in the dark. In daylight the pupil closes until the eye gets
-  // about what a human eye gets, as far as its shape lets it close (a slit closes much further); as the light
-  // fades it opens steadily, to its widest at night.
-  const maxArea = settings.pupilMm ** 2 * ax * ay;
-  const dayArea = DAY_PUPIL_MM ** 2 / tapetumGain ** (1 / SENS_POWER);
+  // The Pupil setting is the pupil's size in daylight. A pupil wider than a human's closes in daylight until
+  // the eye gets about what a human eye gets, as far as its shape lets it close (a slit closes much further).
+  // As the light fades it opens steadily, to about twice as wide at night (as far as the eye can hold).
+  const widestMm = Math.min(settings.pupilMm * DARK_OPENING,
+    Math.max(settings.pupilMm, settings.eyeSizeMm * (PUPIL_MAX_PER_EYE_MM[settings.eyeShape] ?? PUPIL_MAX_PER_EYE_MM.round)));
+  const maxArea = widestMm ** 2 * ax * ay;
+  const dayArea = Math.min(settings.pupilMm ** 2 * ax * ay, DAY_PUPIL_MM ** 2 / tapetumGain ** (1 / SENS_POWER));
   const darkness = -Math.log10(illum) / 4;
-  const wantArea = dayArea * Math.max(1, maxArea / dayArea) ** darkness;
+  const wantArea = dayArea * (maxArea / dayArea) ** darkness;
   const closing = PUPIL_CLOSING[settings.pupilShape] ?? PUPIL_CLOSING.round;
   const pupilScale = Math.sqrt(Math.min(1, Math.max(closing, wantArea / maxArea)));
-  const pupilW = settings.pupilMm * ax * pupilScale;
-  const pupilH = settings.pupilMm * ay * pupilScale;
+  const pupilW = widestMm * ax * pupilScale;
+  const pupilH = widestMm * ay * pupilScale;
   const nightFor = s => Math.min(1, Math.max(0, -Math.log10(illum * s) / 4));
   const pupilSens = ((pupilW * pupilH) / 16) ** SENS_POWER * tapetumGain;
   // Rods and cones (eyes without them keep the plain model). Rods add sensitivity once the light is dim;
@@ -138,7 +149,7 @@ export function sightParams(settings, light) {
     coneNight: nightFor(pupilSens) + 0.2 * coneLack,
     grain: grain < 0.01 ? 0 : grain,
     tube: settings.eyeShape === 'tube',
-    blindSpot: settings.retina === 'away',
+    blindSpot: settings.retina === 'away' ? blindSpotFor(settings.blindSpot) : null,
     uv,
     ir,
     oneSensor: settings.peaks?.length === 1,
@@ -204,7 +215,7 @@ export class SightRenderer {
     // Rods are overwhelmed by bright light: a very rod-heavy eye is dazzled.
     if (p.dazzle) this.glare(p.dazzle);
     if (p.tube) this.tubeEdges();
-    if (p.blindSpot) gap(this.work.getContext('2d'));
+    if (p.blindSpot) gap(this.work.getContext('2d'), p.blindSpot);
 
     const octx = out.getContext('2d');
     octx.drawImage(this.work, 0, 0, out.width, out.height);
@@ -485,49 +496,83 @@ export function chartBlur(settings, light) {
 }
 
 /** No light sensors where the nerve leaves the eye: a gap in the picture. */
-// Canvases for filling in the blind spot: the area around it, one blur of it, and all the blurs together.
+// Canvases for filling in the blind spot: the area around it at low resolution, and the fill at full size.
 const AROUND = createCanvas(1, 1);
-const FILL = createCanvas(1, 1);
 const SPREAD = createCanvas(1, 1);
+const FILL_GRID = 80; // the fill is worked out on a grid this many pixels across (it is smooth anyway)
+const FILL_STEPS = 150;
 
 /**
  * The brain fills the blind spot in with what's around it, so anything inside it disappears.
- * The surroundings, with the spot cut out, are blurred into the hole (each pixel takes the average
- * of the nearby pixels that are still there). A thin dashed line marks where it is.
+ * Each row of the spot is first blended from its left edge to its right edge, then every pixel is
+ * repeatedly set to the average of its neighbors, so the colors flow in evenly from all sides.
+ * A thin dashed line marks where it is.
  */
-function gap(ctx) {
-  const s = BLIND_SPOT;
+function gap(ctx, s) {
   const cx = s.x * VIEW_W, cy = s.y * VIEW_H, rx = s.rx * VIEW_W, ry = s.ry * VIEW_H;
-  const x0 = Math.round(cx - rx * 2.5), y0 = Math.round(cy - ry * 2.5);
-  const w = Math.round(rx * 5), h = Math.round(ry * 5);
+  // The area around the spot, kept inside the view (a big spot can reach past its edge).
+  const x0 = Math.max(0, Math.round(cx - rx * 2.5)), y0 = Math.max(0, Math.round(cy - ry * 2.5));
+  const w = Math.min(VIEW_W, Math.round(cx + rx * 2.5)) - x0, h = Math.min(VIEW_H, Math.round(cy + ry * 2.5)) - y0;
   const hole = (c, k) => {
     c.beginPath();
     c.ellipse(cx - x0, cy - y0, rx * k, ry * k, 0, 0, Math.PI * 2);
   };
-  AROUND.width = SPREAD.width = w;
-  AROUND.height = SPREAD.height = h;
-  const actx = AROUND.getContext('2d');
-  actx.drawImage(ctx.canvas, x0, y0, w, h, 0, 0, w, h);
-  actx.globalCompositeOperation = 'destination-out';
-  hole(actx, 1.05);
-  actx.fill();
-  const sctx = SPREAD.getContext('2d', { willReadFrequently: true });
-  // Fine blur first, so the edge of the spot takes the colors right next to it; wider blurs fill what's left.
-  // Read back without the see-through, each pixel is the average color of the nearby pixels still there.
-  const fill = FILL;
-  fill.width = w;
-  fill.height = h;
-  const fctx = fill.getContext('2d', { willReadFrequently: true });
-  for (const k of [0.2, 0.3, 0.45, 0.65, 1]) {
-    fctx.clearRect(0, 0, w, h);
-    drawBlurred(fctx, AROUND, Math.max(rx, ry) * k);
-    const img = fctx.getImageData(0, 0, w, h);
-    // Below about 6% coverage the color is too rough to trust; a wider blur fills it instead.
-    for (let i = 3; i < img.data.length; i += 4) img.data[i] = img.data[i] >= 16 ? 255 : 0;
-    fctx.putImageData(img, 0, 0);
-    sctx.globalCompositeOperation = 'destination-over';
-    sctx.drawImage(fill, 0, 0);
+  const scale = Math.min(1, FILL_GRID / Math.max(w, h));
+  const gw = Math.max(2, Math.round(w * scale)), gh = Math.max(2, Math.round(h * scale));
+  AROUND.width = gw;
+  AROUND.height = gh;
+  const actx = AROUND.getContext('2d', { willReadFrequently: true });
+  actx.drawImage(ctx.canvas, x0, y0, w, h, 0, 0, gw, gh);
+  const img = actx.getImageData(0, 0, gw, gh);
+  const px = img.data;
+  // Which grid pixels are inside the spot (with a little margin, since shrinking the picture smears its edge).
+  const inside = new Uint8Array(gw * gh);
+  const gcx = (cx - x0) * gw / w, gcy = (cy - y0) * gh / h, grx = rx * 1.12 * gw / w, gry = ry * 1.12 * gh / h;
+  for (let y = 0; y < gh; y++) for (let x = 0; x < gw; x++) {
+    inside[y * gw + x] = ((x + 0.5 - gcx) / grx) ** 2 + ((y + 0.5 - gcy) / gry) ** 2 < 1 ? 1 : 0;
   }
+  // Each row: blend from the last pixel left of the spot to the first one right of it.
+  for (let y = 0; y < gh; y++) {
+    let x = 0;
+    while (x < gw) {
+      if (!inside[y * gw + x]) { x++; continue; }
+      const a = x - 1;
+      while (x < gw && inside[y * gw + x]) x++;
+      const b = x < gw ? x : -1;
+      for (let k = a + 1; k < x; k++) {
+        const t = a < 0 || b < 0 ? (a < 0 ? 1 : 0) : (k - a) / (b - a);
+        for (let c = 0; c < 3; c++) {
+          const left = a < 0 ? px[(y * gw + b) * 4 + c] : px[(y * gw + a) * 4 + c];
+          const right = b < 0 ? left : px[(y * gw + b) * 4 + c];
+          px[(y * gw + k) * 4 + c] = left + (right - left) * t;
+        }
+      }
+    }
+  }
+  // Then smooth it out: each pixel inside takes the average of its neighbors, many times over.
+  const cells = [];
+  for (let i = 0; i < inside.length; i++) if (inside[i]) cells.push(i);
+  for (let step = 0; step < FILL_STEPS; step++) {
+    for (const i of cells) {
+      const x = i % gw, y = (i - x) / gw;
+      const near = [];
+      if (x > 0) near.push(i - 1);
+      if (x < gw - 1) near.push(i + 1);
+      if (y > 0) near.push(i - gw);
+      if (y < gh - 1) near.push(i + gw);
+      for (let c = 0; c < 3; c++) {
+        let sum = 0;
+        for (const j of near) sum += px[j * 4 + c];
+        px[i * 4 + c] = sum / near.length;
+      }
+    }
+  }
+  actx.putImageData(img, 0, 0);
+  SPREAD.width = w;
+  SPREAD.height = h;
+  const sctx = SPREAD.getContext('2d');
+  sctx.imageSmoothingEnabled = true;
+  sctx.drawImage(AROUND, 0, 0, w, h);
   sctx.globalCompositeOperation = 'source-over';
   // Keep only the inside of the spot, with a soft edge.
   sctx.globalCompositeOperation = 'destination-in';
