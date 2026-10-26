@@ -273,7 +273,8 @@ export function buildCameraEye({
   group.add(corneaMesh);
 
   // Iris, with the pupil as a dark disc just behind it (the inside of a real eye is dark).
-  // With a night reflector the pupil glows: that's eyeshine.
+  // A night reflector doesn't light it here: eyeshine sends light back toward its source, so it only shows to a
+  // viewer next to the light (a flash or headlights), and this scene's lights are not at the viewer.
   const irisZ = limbusZ - 0.8;
   if (!textureCache.has(irisColor)) {
     const tex = irisTexture(irisColor);
@@ -284,9 +285,7 @@ export function buildCameraEye({
   iris.position.z = irisZ;
   group.add(iris);
   const pupilShapePath = new THREE.Shape().absellipse(0, 0, pupilRx, pupilRy, 0, Math.PI * 2, false);
-  const pupil = mesh('pupil', new THREE.ShapeGeometry(pupilShapePath, 64), material(hasTapetum ? '#123322' : '#040404', {
-    roughness: 1, emissive: hasTapetum ? '#4fa06a' : '#000000', emissiveIntensity: 0.9,
-  }));
+  const pupil = mesh('pupil', new THREE.ShapeGeometry(pupilShapePath, 64), material('#040404', { roughness: 1 }));
   pupil.position.z = irisZ - 0.05;
   group.add(pupil);
 
