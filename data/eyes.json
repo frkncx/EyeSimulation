@@ -26,6 +26,14 @@
     "superPigment": { "label": "pigment cells", "tip": "Dark pigment around the cones. In bright light it spreads down into the clear zone and blocks it, like a pupil closing." },
     "eyeFloor": { "label": "basement membrane", "tip": "The floor of the eye, where the sensors' nerves leave for the brain." },
     "nerveFibers": { "label": "optic nerve fibers", "tip": "Nerves from every facet's sensors, carrying the dots to the brain." },
+    "mirrorCornea": { "label": "cornea", "tip": "The clear skin over the front of the eye.", "seeThrough": true },
+    "mirrorIris": { "label": "pupil rim", "tip": "Dark pigment around the opening that lets light in." },
+    "mirrorLens": { "label": "lens", "tip": "A weak lens. The mirror does most of the focusing; the lens mainly sharpens its blur.", "seeThrough": true },
+    "distalRetina": { "label": "distal retina", "tip": "The front retina, near where the mirror focuses its light: it sees the sharper picture." },
+    "proximalRetina": { "label": "proximal retina", "tip": "The back retina. The light reaching it is out of focus, so it sees a blurrier picture." },
+    "eyeMirror": { "label": "mirror", "tip": "A curved mirror of tiny square crystals. It bounces light back forward, focused onto the retina." },
+    "eyeWall": { "label": "pigment layer", "tip": "Dark pigment wrapping the eye, so light only gets in through the pupil." },
+    "scallopNerve": { "label": "optic nerve", "tip": "Carries signals from both retinas to the scallop's main nerve center." },
     "uvLight": { "label": "UV", "tip": "Ultraviolet light, just past violet. A slightly yellow lens stops it before it reaches the retina; without that filter, the eye can see it. Faint rays: nothing here sees it." },
     "irLight": { "label": "IR", "tip": "Near-infrared light, just past red. It passes through the eye to the retina; only a sensor tuned far enough red can catch it. Faint rays: nothing here sees it." }
   },
@@ -132,7 +140,7 @@
     { "id": "compound", "label": "Compound eye", "model": "compound", "defaultExample": "fly",
       "hint": "A dome of many tiny eyes, each seeing one dot of the picture.",
       "settings": ["compoundKind", "facets", "facetEyeMm", "colors"] },
-    { "id": "mirror", "label": "Mirror eye", "model": null, "defaultExample": "scallop",
+    { "id": "mirror", "label": "Mirror eye", "model": "mirror", "defaultExample": "scallop",
       "hint": "A curved mirror at the back bounces light forward onto the seeing layer.",
       "settings": [] }
   ],
@@ -237,7 +245,9 @@
         "colors": "Sensors at 350, 450 and 525 nm (Höglund et al. 1973)."
       },
       "look": { "eye": "#2e2620" } },
-    { "id": "scallop", "label": "Scallop", "type": "mirror", "defaults": { "peaks": [490], "lensCutoffNm": null, "uvLens": "none", "coldBlooded": true } },
+    { "id": "scallop", "label": "Scallop", "type": "mirror",
+      "tip": "A bay scallop. It has up to about 200 eyes, each under a millimeter, along the edge of its shell.",
+      "defaults": { "peaks": [490], "lensCutoffNm": null, "uvLens": "none", "coldBlooded": true } },
     { "id": "nautilus", "label": "Nautilus", "type": "pinhole", "defaults": { "peaks": [467], "lensCutoffNm": null, "uvLens": "none", "coldBlooded": true } },
     { "id": "flatworm", "label": "Flatworm", "type": "cup", "defaults": { "peaks": [490], "lensCutoffNm": null, "uvLens": "none", "coldBlooded": true } }
   ]

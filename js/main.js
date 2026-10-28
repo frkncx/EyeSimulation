@@ -5,6 +5,7 @@ import { EYE_ICONS } from './ui/eyeIcons.js';
 import { EyeStage } from './eye3d/eyeStage.js';
 import { buildCameraEye } from './eye3d/cameraEye.js';
 import { buildCompoundEye } from './eye3d/compoundEye.js';
+import { buildMirrorEye } from './eye3d/mirrorEye.js';
 import { createSettings, rangeFor, eyeConfig, shows } from './ui/settingsPanel.js';
 import { installTips } from './ui/tips.js';
 import { createSight } from './ui/sightPanel.js';
@@ -12,7 +13,9 @@ import { createSpectrumBar } from './ui/spectrumBar.js';
 import { peaksForCount, dragRange, bandReach } from './model/spectrum.js';
 
 // 3D models that exist so far, by type `model`. The other types arrive one build step at a time.
-const MODELS = { camera: buildCameraEye, compound: buildCompoundEye };
+const MODELS = { camera: buildCameraEye, compound: buildCompoundEye, mirror: buildMirrorEye };
+// Eyes whose view, settings and light rays are simulated; the others show only their 3D model for now.
+const SIMULATED = new Set(['camera', 'compound']);
 const CUSTOM = 'custom';
 const BIG_EYE_MM = 30;
 
@@ -169,10 +172,11 @@ async function main() {
     $('#resetButton').dataset.tip = `Put the ${example.label.toLowerCase()} settings, the flower garden and daylight back.`;
 
     const model = MODELS[type.model];
+    const simulated = SIMULATED.has(type.model);
     if (!prev || s.typeId !== prev.typeId || s.exampleId !== prev.exampleId || s.settings !== prev.settings || s.rays !== prev.rays) {
       $('#eyeMissing').hidden = !!model;
       $('#eyeMissing').textContent = model ? '' : `The ${type.label.toLowerCase()} arrives in a later step`;
-      rayButtons.hidden = !model;
+      rayButtons.hidden = !simulated;
       const tips = rayTips(s.settings, s.rays);
       for (const btn of rayButtons.querySelectorAll('[data-ray]')) {
         btn.setAttribute('aria-pressed', String(s.rays[btn.dataset.ray]));
@@ -188,6 +192,8 @@ async function main() {
         : data.parts;
       if (model) {
         stage.setEye(model({ ...s.settings, irisColor: example.look?.iris, eyeColor: example.look?.eye, rays: s.rays }));
+      }
+      if (simulated) {
         settingsPanel.update(configFor(s), s.settings);
         sightSettings.update(configFor(s), s.settings);
       } else {
@@ -195,15 +201,15 @@ async function main() {
         sightSettings.clear('');
       }
       $('#eyeView').hidden = !model;
-      const notes = model ? EYE_NOTES.filter(n => n.when(s.settings, s)).map(n => n.text) : [];
+      const notes = simulated ? EYE_NOTES.filter(n => n.when(s.settings, s)).map(n => n.text) : [];
       $('#eyeNote').hidden = !notes.length;
       $('#eyeNote').innerHTML = notes.map(t => `<span>${escapeHtml(t)}</span>`).join('');
     }
     if (!prev || s.settings !== prev.settings || s.exampleId !== prev.exampleId || s.typeId !== prev.typeId || s.spectrumNote !== prev.spectrumNote) {
-      spectrum.update(s.settings, { shown: !!model, locked: colorsLocked(s), lensTip: example.lensTip, note: s.spectrumNote });
+      spectrum.update(s.settings, { shown: simulated, locked: colorsLocked(s), lensTip: example.lensTip, note: s.spectrumNote });
     }
     if (!prev || ['typeId', 'exampleId', 'settings', 'sceneId', 'light', 'ownImage'].some(k => s[k] !== prev[k])) {
-      sight.update(s, !!model, type.label);
+      sight.update(s, simulated, type.label);
     }
     stage.setCut(s.cut);
     stage.setLabels(s.labels);
