@@ -21,7 +21,7 @@
     "pigment": { "label": "pigment cells", "tip": "Dark cells packed between the tubes, so light from one facet can't leak into its neighbors." },
     "superFacet": { "label": "corneal lens", "tip": "One of the eye's tiny lenses. Hundreds of them together focus light from one direction onto each sensor." },
     "superCone": { "label": "crystalline cone", "tip": "A clear cone that bends its light across the clear zone, to meet light from other facets on one sensor." },
-    "clearZone": { "label": "clear zone", "tip": "A clear gap between the lenses and the sensors, where light from many facets crosses over.", "seeThrough": true },
+    "clearZone": { "label": "clear zone", "tip": "Clear living tissue between the lenses and the sensors, where light from many facets crosses over.", "seeThrough": true },
     "superSensors": { "label": "rhabdom", "tip": "The light sensors. Each collects light from hundreds of facets, so this eye works in very dim light." },
     "superPigment": { "label": "pigment cells", "tip": "Dark pigment around the cones. In bright light it spreads down into the clear zone and blocks it, like a pupil closing." },
     "eyeFloor": { "label": "basement membrane", "tip": "The floor of the eye, where the sensors' nerves leave for the brain." },
