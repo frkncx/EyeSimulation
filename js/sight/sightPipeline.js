@@ -20,7 +20,7 @@ import { MEASURED, TUNING } from '../model/constants.js';
 import { SCENE_W, SCENE_H } from '../scenes/scenes.js';
 
 // Every number below is in js/model/constants.js, with what it does and where it comes from.
-const { AMBLYOPIA_BANDS, HUMAN_CPD, CHART_M, DIFFRACTION_ARCMIN_MM } = MEASURED;
+const { AMBLYOPIA_BANDS, HUMAN_CPD, CHART_M, DIFFRACTION_ARCMIN_MM, SUPERPOSITION_GAIN } = MEASURED;
 const {
   FIELD_DEG, LIGHT_DECADES, REF_PUPIL_MM, SENS_POWER, TAPETUM_GAIN, ADAPTATION, GLOW_LEVEL, GLOW_POWER, SHOULDER,
   HUMAN_RODS_PER_CONE, ROD_TAKEOVER, CONE_DAY, ROD_GAIN_POWER, ROD_BLUR_POWER, CONE_FADE_PER_DECADE,
@@ -198,14 +198,21 @@ const FWHM_TO_SIGMA = 1 / 2.355; // a gaussian blur's standard deviation from it
  * A compound eye: no pupil and no focusing (everything is in focus), so the light it gets is fixed
  * (simplified: about what a human eye gets in daylight, without a pupil to open at night).
  * Each facet averages the light over its acceptance angle into one dot; dots sit one facet angle apart.
+ * A superposition eye's pigment pulls back as the light falls, so hundreds of facets pool their light onto each
+ * sensor: it opens on a log scale across the Light slider, like a pupil, to its full gain at night. In daylight
+ * it gathers what an apposition eye does, so every eye is normally exposed there. Its blur stays the
+ * apposition facets' (simplified).
  */
 function compoundParams(settings, light) {
   const illum = 10 ** (-LIGHT_DECADES * (1 - light));
+  const gain = settings.compoundKind === 'superposition' ? SUPERPOSITION_GAIN ** (1 - light) : 1;
+  // Brightness grows a little slower than the light gathered, as with a pupil.
+  const sens = gain ** SENS_POWER;
   const nightFor = s => Math.min(1, Math.max(0, -Math.log10(illum * s) / LIGHT_DECADES));
-  const night = nightFor(1);
+  const night = nightFor(sens);
   const spacingDeg = facetAngle(settings.facets) * DEG;
   const acceptDeg = facetAcceptance(settings.facets, settings.facetEyeMm) * DEG;
-  const grain = GRAIN_LEVEL / Math.sqrt(illum);
+  const grain = GRAIN_LEVEL / Math.sqrt(illum * gain);
   const reach = bandReach(settings);
   const uv = reach.uv ? smoothstep(UV_FROM_NM, UV_FULL_NM, reach.lo) : 0;
   const ir = reach.ir ? smoothstep(IR_FROM_NM, IR_FULL_NM, reach.hi) : 0;
@@ -215,8 +222,8 @@ function compoundParams(settings, light) {
     detailArcmin: Math.max(spacingDeg, acceptDeg) * 60,
     pupilW: REF_PUPIL_MM, pupilH: REF_PUPIL_MM, pupilScale: 1, tapetum: false, night,
     focusM: Infinity, cylinderD: 0, cylinderDir: [1, 0], amblyopiaFactor: 1, contrast: 1,
-    exposure: illum ** ADAPTATION,
-    glowGain: GLOW_LEVEL * illum ** -GLOW_POWER,
+    exposure: illum ** ADAPTATION * sens,
+    glowGain: GLOW_LEVEL * illum ** -GLOW_POWER * sens,
     fineArcmin: 0, rodBlur: 1, coneFade: 0, dazzle: 0, purkinje: false, coneNight: night,
     grain: grain < GRAIN_MIN ? 0 : grain,
     tube: false, blindSpot: null,

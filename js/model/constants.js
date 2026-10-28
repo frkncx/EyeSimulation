@@ -36,6 +36,12 @@ export const MEASURED = {
   // through the tiny lens (wavelength ÷ width, at 0.5 µm) plus the width of the sensors at its focus (about
   // 0.75 ÷ width). Simplified, after Land & Nilsson, "Animal Eyes".
   ACCEPTANCE_UM: Math.hypot(0.5, 0.75),
+  // How much more light a dark-adapted superposition compound eye gathers than an apposition one, from optical
+  // sensitivity: the hawkmoth Deilephila 69 µm² sr, 25 times the nocturnal bee Megalopta's 2.7 (Warrant 2017,
+  // Phil Trans R Soc B 372:20160063); Megalopta's is 27 times a day bee's like the honeybee (Greiner, Ribi &
+  // Warrant 2004, Cell Tissue Res 316:377). So 69 ÷ (2.7 ÷ 27), about 690, against the honeybee; the fly is
+  // treated like the honeybee.
+  SUPERPOSITION_GAIN: 69 / (2.7 / 27),
   // How far each pupil shape can close, as a share of its widest area: round about 1/15, a slit 1/135
   // (Banks et al. 2015), a horizontal slit about 0.15 (octopus). Only the slit's value has its source here.
   PUPIL_CLOSING: { round: 1 / 15, slit: 1 / 135, horizontal: 0.15 },

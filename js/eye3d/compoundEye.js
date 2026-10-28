@@ -10,6 +10,7 @@ const LENS_R = R; // facet lenses sit on the surface
 const GUIDE_TOP = R - 0.25; // light guides run from just under the lens...
 const GUIDE_BOTTOM = R - 1.6; // ...to the top of the sensors
 const FLOOR_R = 4.5; // the eye floor, where the sensors end
+const SENSOR_TOP = 7.2; // in a superposition eye the sensors start here, below the clear zone
 const DRAWN_SIZE_MM = 1.1; // a fly's eye: drawn at the model's own size
 
 function material(color, extra = {}) {
@@ -90,12 +91,16 @@ function rayArrow(part, points, color, faint) {
 /**
  * Build the eye from its settings. Returns { group, anchors, radius, scale }, like the camera eye.
  * The dome grows a little with Eye size so the change shows, but stays drawn far larger than life.
+ * A superposition eye is drawn as it works at night: its pigment pulled back around the cones, leaving a clear
+ * zone between them and the sensors (in daylight the pigment fills it).
  */
 export function buildCompoundEye({
-  facets = 3500, facetEyeMm = DRAWN_SIZE_MM, eyeColor = '#8a2418',
+  compoundKind = 'apposition', facets = 3500, facetEyeMm = DRAWN_SIZE_MM, eyeColor = '#8a2418',
   peaks = null, lensCutoffNm = null, uvLens = 'none', rays = { uv: false, ir: false },
 } = {}) {
   const reach = bandReach({ peaks, lensCutoffNm, uvLens });
+  const superposition = compoundKind === 'superposition';
+  const part = (apposition, sup) => (superposition ? sup : apposition);
   const group = new THREE.Group();
   const scale = Math.min(1.5, Math.max(0.6, Math.sqrt(facetEyeMm / DRAWN_SIZE_MM)));
   group.scale.setScalar(scale);
@@ -103,30 +108,43 @@ export function buildCompoundEye({
   const dirs = facetDirections(facets);
   // Neighbors sit one facet angle apart on the dome.
   const gap = R * facetAngle(facets);
+  // Where the sensors start: right under the light guides, or below the clear zone.
+  const sensorTop = superposition ? SENSOR_TOP : GUIDE_BOTTOM;
 
   // Facets: shallow six-sided lenses, side by side over the dome. The color is the pigment showing through.
   const lens = new THREE.CylinderGeometry(gap * 0.6, gap * 0.6, 0.3, 6, 1);
-  group.add(along('facet', dirs, lens, material(eyeColor, { roughness: 0.22, metalness: 0.15 }), LENS_R - 0.3, LENS_R));
+  group.add(along(part('facet', 'superFacet'), dirs, lens, material(eyeColor, { roughness: 0.22, metalness: 0.15 }), LENS_R - 0.3, LENS_R));
 
   // Light guides: clear cones narrowing toward the sensors.
   const guide = new THREE.ConeGeometry(gap * 0.42, GUIDE_TOP - GUIDE_BOTTOM, 6, 1);
   guide.rotateX(Math.PI); // point down, toward the sensors
-  group.add(along('lightGuide', dirs, guide, material('#e9f3f5', { transparent: true, opacity: 0.75, roughness: 0.15 }),
+  group.add(along(part('lightGuide', 'superCone'), dirs, guide, material('#e9f3f5', { transparent: true, opacity: 0.75, roughness: 0.15 }),
     GUIDE_BOTTOM, GUIDE_TOP));
 
-  // Sensors: one long thin bundle per facet, down to the eye floor.
+  // Sensors: one long thin bundle per facet, down to the eye floor; in a superposition eye shorter and thicker.
   // An eye that sees UV gets UV on its sensors: a soft violet glow, while the UV rays are shown.
   const uvGlow = reach.uv && rays.uv ? { emissive: '#8a4cff', emissiveIntensity: 0.25 } : {};
-  const rod = new THREE.CylinderGeometry(Math.max(0.03, gap * 0.12), Math.max(0.03, gap * 0.12), GUIDE_BOTTOM - FLOOR_R, 6, 1);
-  group.add(along('facetSensors', dirs, rod, material('#e8907a', { roughness: 0.7, ...uvGlow }), FLOOR_R, GUIDE_BOTTOM));
+  const rodR = Math.max(0.03, gap * (superposition ? 0.2 : 0.12));
+  const rod = new THREE.CylinderGeometry(rodR, rodR, sensorTop - FLOOR_R, 6, 1);
+  group.add(along(part('facetSensors', 'superSensors'), dirs, rod, material('#e8907a', { roughness: 0.7, ...uvGlow }), FLOOR_R, sensorTop));
 
-  // Dark pigment filling the space between the tubes, closed off at the rim.
-  const pigmentShape = [...quarter(FLOOR_R + 0.15), [GUIDE_TOP, 0], ...quarter(GUIDE_TOP).reverse()];
-  const pigment = mesh('pigment', lathe(pigmentShape), material('#3a1610', {
-    transparent: true, opacity: 0.35, depthWrite: false, roughness: 0.9,
+  // Dark pigment filling the space between the tubes, closed off at the rim; in a superposition eye only
+  // around the cones.
+  const pigmentFrom = superposition ? GUIDE_BOTTOM : FLOOR_R + 0.15;
+  const pigmentShape = [...quarter(pigmentFrom), [GUIDE_TOP, 0], ...quarter(GUIDE_TOP).reverse()];
+  const pigment = mesh(part('pigment', 'superPigment'), lathe(pigmentShape), material('#3a1610', {
+    transparent: true, opacity: superposition ? 0.6 : 0.35, depthWrite: false, roughness: 0.9,
   }));
   pigment.renderOrder = 1;
   group.add(pigment);
+
+  // The clear zone: a faint, see-through shell between the cones and the sensors.
+  if (superposition) {
+    const zone = mesh('clearZone', lathe([...quarter(SENSOR_TOP), [GUIDE_BOTTOM, 0], ...quarter(GUIDE_BOTTOM).reverse()]),
+      material('#cfe8f0', { transparent: true, opacity: 0.12, depthWrite: false, roughness: 0.1 }));
+    zone.renderOrder = 1;
+    group.add(zone);
+  }
 
   // The eye floor, and the nerves leaving it for the brain.
   const floor = mesh('eyeFloor', lathe([...quarter(FLOOR_R), ...quarter(FLOOR_R - 0.35).reverse()]), material('#d4bf8e'));
@@ -149,14 +167,22 @@ export function buildCompoundEye({
   const ray = (part, angleDeg, color, faint) => {
     const a = THREE.MathUtils.degToRad(angleDeg);
     const d = v(-Math.abs(Math.sin(a)) * 0.35 - 0.05, Math.cos(a) * 0.45, 0.8).normalize();
-    group.add(rayArrow(part, [d.clone().multiplyScalar(R + 7), d.clone().multiplyScalar(GUIDE_BOTTOM - 2)], color, faint));
+    group.add(rayArrow(part, [d.clone().multiplyScalar(R + 7), d.clone().multiplyScalar(sensorTop - 2)], color, faint));
   };
   if (rays.uv) for (const a of [30, 90, 150]) ray('uvLight', a, '#8a4cff', !reach.uv);
   if (rays.ir) for (const a of [60, 120, 180]) ray('irLight', a, '#e0301e', !reach.ir);
 
   // Labels: outside ones on the dome and the nerve; inside ones on the cut face (x = 0), shown once it opens.
   const onDome = (r, deg) => v(0, r * Math.sin(THREE.MathUtils.degToRad(deg)), r * Math.cos(THREE.MathUtils.degToRad(deg)));
-  const anchors = [
+  const anchors = superposition ? [
+    { part: 'superFacet', position: onDome(R, 35), side: 'right' },
+    { part: 'nerveFibers', position: v(0, 0, -12), side: 'left' },
+    { part: 'superCone', position: onDome((GUIDE_TOP + GUIDE_BOTTOM) / 2, 60), side: 'right', inner: true },
+    { part: 'clearZone', position: onDome((GUIDE_BOTTOM + SENSOR_TOP) / 2, 30), side: 'right', inner: true },
+    { part: 'superSensors', position: onDome((SENSOR_TOP + FLOOR_R) / 2, 10), side: 'right', inner: true },
+    { part: 'superPigment', position: onDome((GUIDE_TOP + GUIDE_BOTTOM) / 2, -40), side: 'left', inner: true },
+    { part: 'eyeFloor', position: onDome(FLOOR_R, -70), side: 'left', inner: true },
+  ] : [
     { part: 'facet', position: onDome(R, 35), side: 'right' },
     { part: 'nerveFibers', position: v(0, 0, -12), side: 'left' },
     { part: 'lightGuide', position: onDome((GUIDE_TOP + GUIDE_BOTTOM) / 2, 60), side: 'right', inner: true },
