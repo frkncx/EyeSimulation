@@ -1,7 +1,9 @@
 // Phones and narrow windows: one section at a time picked from a tab bar at the bottom, and the eye types in a
 // list that opens from the current one. Wider screens are left as they are.
-// The first tab, Compare, shows the 3D eye and the view together with one setting under them, picked from a
-// row of chips, so a change can be watched in both at once. It reuses the settings' own rows (CSS hides the rest).
+// The first tab, Compare, shows the 3D eye with the view as a small window on it, and a sheet under them with
+// one setting, picked from a row of chips, so a change can be watched in both at once. Pulling the sheet down
+// (or tapping its handle) closes it and gives the 3D eye the whole space. It reuses the settings' own rows
+// (CSS hides the rest).
 import { escapeHtml } from './glossary.js';
 
 export const PHONE = matchMedia('(max-width: 1279.98px)');
@@ -52,7 +54,7 @@ export function installPhoneMenus({ toggle, list, tabs, spectrum, settings }) {
     if (b) show(b.dataset.tab);
   });
   show('eye');
-  installCompare(settings.closest('.layout'), () => show('settings'));
+  installCompare(settings.closest('.layout'), show);
 
   const home = spectrum.parentElement;
   const homeNext = spectrum.nextSibling;
@@ -66,7 +68,35 @@ export function installPhoneMenus({ toggle, list, tabs, spectrum, settings }) {
 }
 
 /** The chips that pick which setting the Compare tab shows, with "All settings" at the end. */
-function installCompare(layout, showAll) {
+function installCompare(layout, show) {
+  // The sheet's handle: a tap or a swipe opens or closes it.
+  const handle = document.createElement('button');
+  handle.type = 'button';
+  handle.className = 'compare-handle';
+  layout.append(handle);
+  const setSheet = open => {
+    document.body.classList.toggle('sheet-closed', !open);
+    handle.setAttribute('aria-expanded', String(open));
+    handle.innerHTML = `<span class="compare-grip" aria-hidden="true"></span>${open ? 'Full 3D view' : 'Settings and view'}`;
+  };
+  setSheet(true);
+  let startY = null;
+  handle.addEventListener('pointerdown', e => { startY = e.clientY; });
+  handle.addEventListener('pointerup', e => {
+    const dy = startY == null ? 0 : e.clientY - startY;
+    startY = null;
+    const open = !document.body.classList.contains('sheet-closed');
+    setSheet(dy < -20 ? true : dy > 20 ? false : !open);
+  });
+  handle.addEventListener('keydown', e => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSheet(document.body.classList.contains('sheet-closed')); }
+  });
+
+  // The small view on the eye opens the full "How it sees" tab (its tags still explain themselves).
+  layout.querySelector('.sight-view').addEventListener('click', e => {
+    if (PHONE.matches && document.body.dataset.tab === 'eye' && !e.target.closest('.sight-tag')) show('sight');
+  });
+
   const chips = document.createElement('div');
   chips.className = 'compare-chips';
   chips.setAttribute('role', 'group');
@@ -97,7 +127,7 @@ function installCompare(layout, showAll) {
   render();
 
   chips.addEventListener('click', e => {
-    if (e.target.closest('.compare-all')) return showAll();
+    if (e.target.closest('.compare-all')) return show('settings');
     const chip = e.target.closest('[data-row]');
     if (!chip) return;
     focus = chip.dataset.row;
