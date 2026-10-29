@@ -1,5 +1,7 @@
 # Eye Simulation — Next Run: Eye Types Instead of Animals
 
+> **Status (2026-10-29): built.** Kept as a record of the plan. SESSION_PROMPT.md holds the current rules and next steps. Where this file and the code differ, the code is current (for example: Owl, Owl monkey and Moth were added as examples, and the spectrum bar sits in the header, not in the Color vision section).
+
 Change the project in this folder from animal eyes to eye types. Keep everything else as it is. Do not add anything not listed here.
 
 ## 1. Top bar: eye types

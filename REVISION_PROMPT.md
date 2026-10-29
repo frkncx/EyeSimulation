@@ -1,5 +1,7 @@
 # Eye Simulation — Revision Prompt
 
+> **Status (2026-10-29): built, then replaced by NEXT_RUN_PROMPT.md (eye types instead of animals).** Kept as a record of the first plan. Out of date on purpose: the app is no longer PC only (it has a phone layout), and the top buttons are eye types, not animals. SESSION_PROMPT.md holds the current rules.
+
 Revise the project in this folder. Keep it small and simple. Do not add anything that isn't listed here.
 
 ## Delete
