@@ -203,7 +203,7 @@ export class EyeStage {
       this.raycaster.set(from, dir.normalize());
       this.raycaster.far = dist - 0.8 * this.eye.scale;
       l.behind = this.raycaster.intersectObject(this.eye.group, true).some(h =>
-        h.object.userData.part !== l.part &&
+        h.object.userData.part !== l.part && !h.object.userData.hitArea &&
         !this.parts[h.object.userData.part]?.seeThrough &&
         this.clip.distanceToPoint(h.point) >= 0);
     }

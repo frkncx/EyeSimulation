@@ -71,6 +71,8 @@ function cylinderBetween(part, a, b, radius, mat) {
   return m;
 }
 
+const RAY_HIT_R = 0.7; // model units (mm at human size): about a fingertip across on a phone
+
 /** A light ray as an arrow through these points, with its head at the last one; `faint` when nothing sees it. */
 function rayArrow(part, points, color, faint) {
   const mat = material(color, {
@@ -85,6 +87,14 @@ function rayArrow(part, points, color, faint) {
   head.position.copy(neck).addScaledVector(dir, 0.45);
   head.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
   ray.add(head);
+  // A ray is too thin to point at, so each part also gets a thicker, invisible copy that catches the pointer.
+  // It shares the ray's material, so highlighting it lights up the whole ray.
+  for (let i = 0; i < last; i++) {
+    const hit = cylinderBetween(part, points[i], points[i + 1], RAY_HIT_R, mat);
+    hit.visible = false;
+    hit.userData.hitArea = true;
+    ray.add(hit);
+  }
   return ray;
 }
 
@@ -168,7 +178,9 @@ export function buildCompoundEye({
     const a = THREE.MathUtils.degToRad(angleDeg);
     const d = v(-Math.abs(Math.sin(a)) * 0.35 - 0.05, Math.cos(a) * 0.45, 0.8).normalize();
     group.add(rayArrow(part, [d.clone().multiplyScalar(R + 7), d.clone().multiplyScalar(sensorTop - 2)], color, faint));
+    rayTails[part] ??= d.clone().multiplyScalar(R + 4);
   };
+  const rayTails = {}; // a point on the first ray of each kind, outside the eye, for its label
   if (rays.uv) for (const a of [30, 90, 150]) ray('uvLight', a, '#8a4cff', !reach.uv);
   if (rays.ir) for (const a of [60, 120, 180]) ray('irLight', a, '#e0301e', !reach.ir);
 
@@ -190,5 +202,6 @@ export function buildCompoundEye({
     { part: 'pigment', position: onDome((GUIDE_BOTTOM + FLOOR_R) / 2, -45), side: 'left', inner: true },
     { part: 'eyeFloor', position: onDome(FLOOR_R, -70), side: 'left', inner: true },
   ];
+  anchors.push(...Object.entries(rayTails).map(([part, position]) => ({ part, position, side: 'left' })));
   return { group, anchors, radius: R * scale, scale };
 }

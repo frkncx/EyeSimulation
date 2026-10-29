@@ -209,6 +209,8 @@ function cylinderBetween(part, a, b, radius, mat) {
   return m;
 }
 
+const RAY_HIT_R = 0.7; // model units (mm at human size): about a fingertip across on a phone
+
 /** A light ray as an arrow through these points, with its head at the last one; `faint` when nothing sees it. */
 function rayArrow(part, points, color, faint) {
   const mat = material(color, {
@@ -223,6 +225,14 @@ function rayArrow(part, points, color, faint) {
   head.position.copy(neck).addScaledVector(dir, 0.45);
   head.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
   ray.add(head);
+  // A ray is too thin to point at, so each part also gets a thicker, invisible copy that catches the pointer.
+  // It shares the ray's material, so highlighting it lights up the whole ray.
+  for (let i = 0; i < last; i++) {
+    const hit = cylinderBetween(part, points[i], points[i + 1], RAY_HIT_R, mat);
+    hit.visible = false;
+    hit.userData.hitArea = true;
+    ray.add(hit);
+  }
   return ray;
 }
 
@@ -459,7 +469,9 @@ export function buildCameraEye({
       points.push(v(ex, ey, cz - Math.sqrt(onRetina ** 2 - ex ** 2 - ey ** 2) + 0.35));
     }
     group.add(rayArrow(part, points, color, faint));
+    rayTails[part] ??= points[0].clone().lerp(points[1], 0.4);
   };
+  const rayTails = {}; // a point on the first ray of each kind, outside the eye, for its label
   // All rays sit on the half that stays when the eye is cut open (x ≤ 0), UV and IR taking turns.
   const uvThrough = reach.uv || uvLens !== 'on' || !lensCutoffNm;
   if (rays.uv) for (const a of [90, 150, 210]) ray('uvLight', a, '#8a4cff', uvThrough, !reach.uv);
@@ -481,6 +493,7 @@ export function buildCameraEye({
     ...spots.map(spot => ({ part: spot.part, position: spotAt(spot.deg ?? 0), side: 'right', inner: true })),
     { part: 'wiring', position: v(0, 0, 0), side: 'right', inner: true, onCut: { sphere: wiringR, angleDeg: 215, z: cz } },
     { part: 'tapetum', position: fromCenter(v(-0.3, 0.35, -0.89), backR - 1), side: 'left', inner: true },
+    ...Object.entries(rayTails).map(([part, position]) => ({ part, position, side: 'left' })),
   ].filter(a => (a.part !== 'blindSpot' || wiringInFront) && (a.part !== 'tapetum' || hasTapetum));
   return { group, anchors, radius: R * scale, scale };
 }
