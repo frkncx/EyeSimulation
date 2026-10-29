@@ -8,6 +8,7 @@ import { buildCompoundEye } from './eye3d/compoundEye.js';
 import { buildMirrorEye } from './eye3d/mirrorEye.js';
 import { createSettings, rangeFor, eyeConfig, shows } from './ui/settingsPanel.js';
 import { installTips } from './ui/tips.js';
+import { installPhoneMenus } from './ui/phoneMenus.js';
 import { createSight } from './ui/sightPanel.js';
 import { createSpectrumBar } from './ui/spectrumBar.js';
 import { peaksForCount, dragRange, bandReach } from './model/spectrum.js';
@@ -136,7 +137,7 @@ async function main() {
   const buttons = $('#eyeButtons');
   buttons.innerHTML = data.types.map(t => `
     <button type="button" class="eye-button" data-type="${t.id}" aria-pressed="false" data-tip="${escapeHtml(t.hint)}">
-      ${EYE_ICONS[t.id] ?? ''}<span>${escapeHtml(t.label)}</span>
+      ${EYE_ICONS[t.id] ?? ''}<span>${escapeHtml(t.label)}</span><small class="eye-hint">${escapeHtml(t.hint)}</small>
     </button>`).join('');
   buttons.addEventListener('click', e => {
     const btn = e.target.closest('[data-type]');
@@ -144,6 +145,7 @@ async function main() {
     const exampleId = typeById[btn.dataset.type].defaultExample;
     store.set({ typeId: btn.dataset.type, exampleId, settings: defaultsFor(exampleId), spectrumNote: null });
   });
+  installPhoneMenus({ toggle: $('#eyeTypeToggle'), list: buttons, tabs: $('.phone-tabs'), spectrum: $('#spectrum'), settings: $('#settings') });
 
   const exampleSelect = $('#exampleSelect');
   exampleSelect.addEventListener('change', () => {

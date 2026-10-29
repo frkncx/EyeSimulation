@@ -2,13 +2,15 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Eye Simulation</title>
   <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
   <header class="eye-bar">
     <div class="eye-pick">
+      <!-- Phones only: the current eye type; tapping it opens the eye type list below. -->
+      <button type="button" id="eyeTypeToggle" class="eye-type-toggle" aria-expanded="false" aria-controls="eyeButtons"></button>
       <nav id="eyeButtons" class="eye-buttons" aria-label="Eye type"></nav>
       <div class="pick-row">
         <label class="example-pick">
@@ -35,7 +37,7 @@
             <button type="button" class="ray-button ray-button--uv" data-ray="uv" aria-pressed="false">UV</button>
             <button type="button" class="ray-button ray-button--ir" data-ray="ir" aria-pressed="false">IR</button>
           </div>
-          <p class="stage-hint">Drag to rotate · Scroll to zoom · Hover a part to learn what it does</p>
+          <p class="stage-hint"><span class="hint-wide">Drag to rotate · Scroll to zoom · Hover a part to learn what it does</span><span class="hint-phone">Drag to rotate · Pinch to zoom</span></p>
         </div>
         <p id="eyeNote" class="eye-note" hidden></p>
       </div>
@@ -56,6 +58,22 @@
       <div id="sight" class="sight"></div>
     </aside>
   </main>
+
+  <!-- Phones only: one section at a time. -->
+  <nav class="phone-tabs" aria-label="Sections">
+    <button type="button" data-tab="eye" aria-pressed="true">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.5"/></svg>
+      <span>3D eye</span>
+    </button>
+    <button type="button" data-tab="sight" aria-pressed="false">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 16 5-5 4 4 3-3 6 6"/></svg>
+      <span>How it sees</span>
+    </button>
+    <button type="button" data-tab="settings" aria-pressed="false">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>
+      <span>Settings</span>
+    </button>
+  </nav>
 
   <div id="tooltip" class="tooltip" role="tooltip" hidden></div>
   <script type="importmap">

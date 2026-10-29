@@ -7,6 +7,7 @@ import { escapeHtml } from '../ui/glossary.js';
 
 const INNER_LABELS_FROM = 0.35; // cut-open amount at which labels for inside parts appear
 const HIGHLIGHT = new THREE.Color(0x3a3a2a);
+const FOV = 35; // the camera's angle top to bottom, in degrees, on a view wider than tall
 
 export class EyeStage {
   constructor(container, parts, tooltip) {
@@ -28,7 +29,7 @@ export class EyeStage {
     container.append(this.labelRenderer.domElement);
 
     this.scene = new THREE.Scene();
-    this.camera = new THREE.PerspectiveCamera(35, 1, 1, 500);
+    this.camera = new THREE.PerspectiveCamera(FOV, 1, 1, 500);
     this.camera.position.set(0.62, 0.3, 0.72).multiplyScalar(62);
     this.scene.add(new THREE.HemisphereLight(0xffffff, 0x30303a, 1.6));
     const key = new THREE.DirectionalLight(0xffffff, 2.2);
@@ -62,6 +63,8 @@ export class EyeStage {
     this.renderer.setSize(w, h);
     this.labelRenderer.setSize(w, h);
     this.camera.aspect = w / h;
+    // A view taller than wide (a phone held upright) widens its angle so the eye still fits side to side.
+    this.camera.fov = 2 * THREE.MathUtils.radToDeg(Math.atan(Math.tan(THREE.MathUtils.degToRad(FOV / 2)) / Math.min(1, w / h)));
     this.camera.updateProjectionMatrix();
   }
 
@@ -220,14 +223,31 @@ export class EyeStage {
       this.highlight(object);
       this.showTip(object?.userData.part ?? null, e.clientX, e.clientY);
     });
-    el.addEventListener('pointerleave', () => { this.highlight(null); this.showTip(null); });
-    // Labels explain themselves too.
+    el.addEventListener('pointerleave', e => { if (e.pointerType === 'mouse') { this.highlight(null); this.showTip(null); } });
+    // On touch screens there is no hovering: a short tap on a part (not a drag) shows what it is.
+    let down = null;
+    el.addEventListener('pointerdown', e => {
+      down = e.pointerType === 'mouse' ? null : { x: e.clientX, y: e.clientY };
+      if (down) this.highlight(null);
+    });
+    document.addEventListener('pointerdown', e => { if (e.pointerType !== 'mouse' && e.target !== el) this.highlight(null); });
+    el.addEventListener('pointerup', e => {
+      if (!down || Math.hypot(e.clientX - down.x, e.clientY - down.y) > 8) return;
+      const object = this.partAt(e.clientX, e.clientY);
+      this.highlight(object);
+      this.showTip(object?.userData.part ?? null, e.clientX, e.clientY);
+    });
+    // Labels explain themselves too: on hover, or on a tap.
     this.labelRenderer.domElement.addEventListener('pointerover', e => {
-      const label = e.target.closest('.eye-label');
+      const label = e.pointerType === 'mouse' && e.target.closest('.eye-label');
       if (label) this.showTip(label.dataset.part, e.clientX, e.clientY);
     });
     this.labelRenderer.domElement.addEventListener('pointerout', e => {
-      if (e.target.closest('.eye-label')) this.showTip(null);
+      if (e.pointerType === 'mouse' && e.target.closest('.eye-label')) this.showTip(null);
+    });
+    this.labelRenderer.domElement.addEventListener('click', e => {
+      const label = e.target.closest('.eye-label');
+      if (label) this.showTip(label.dataset.part, e.clientX, e.clientY);
     });
   }
 
@@ -249,7 +269,9 @@ export class EyeStage {
     tip.innerHTML = `<strong>${escapeHtml(info.label)}</strong>: ${escapeHtml(info.tip)}`;
     tip.hidden = false;
     const w = tip.offsetWidth;
-    tip.style.left = `${Math.min(x + 16, window.innerWidth - w - 12)}px`;
-    tip.style.top = `${y + 18}px`;
+    const h = tip.offsetHeight;
+    tip.style.left = `${Math.max(12, Math.min(x + 16, window.innerWidth - w - 12))}px`;
+    // Below the pointer, or above it when there's no room underneath.
+    tip.style.top = `${y + 18 + h <= window.innerHeight - 8 ? y + 18 : Math.max(8, y - 12 - h)}px`;
   }
 }
