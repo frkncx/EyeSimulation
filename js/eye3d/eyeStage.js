@@ -66,6 +66,7 @@ export class EyeStage {
     // A view taller than wide (a phone held upright) widens its angle so the eye still fits side to side.
     this.camera.fov = 2 * THREE.MathUtils.radToDeg(Math.atan(Math.tan(THREE.MathUtils.degToRad(FOV / 2)) / Math.min(1, w / h)));
     this.camera.updateProjectionMatrix();
+    this.dirty = true;
   }
 
   /** Replace the eye on screen with a freshly built one ({ group, anchors, radius }). */
@@ -104,9 +105,11 @@ export class EyeStage {
     // Check which new labels are hidden behind the eye before the first frame, so they don't flash up.
     built.group.updateMatrixWorld(true);
     this.updateOcclusion();
+    this.dirty = true;
   }
 
   setCut(amount) {
+    if (amount !== this.cut) this.dirty = true;
     this.cut = amount;
     const scale = this.eye?.scale ?? 1;
     const r = (this.eye?.radius ?? 12) + 1.5 * scale;
@@ -131,11 +134,16 @@ export class EyeStage {
   }
 
   setLabels(on) {
+    if (on !== this.labelsOn) this.dirty = true;
     this.labelsOn = on;
   }
 
+  // Draws only when something changed (the camera moved, a setting, a highlight), and not while hidden:
+  // redrawing a still picture 60 times a second makes phones lag and run warm.
   frame() {
-    this.controls.update();
+    const moving = this.controls.update();
+    if (!(moving || this.dirty) || !this.container.clientWidth) return;
+    this.dirty = false;
     // Re-check which labels are hidden behind the eye, a few times a second while things move.
     const view = this.camera.matrixWorld.elements.join() + this.cut + this.labelsOn;
     this.frameCount = (this.frameCount ?? 0) + 1;
@@ -143,6 +151,8 @@ export class EyeStage {
     if (moved) {
       this.lastView = view;
       this.updateOcclusion();
+    } else if (view !== this.lastView) {
+      this.dirty = true; // draw again until the labels are checked for the view the camera stopped at
     }
     const p = new THREE.Vector3();
     for (const l of this.labels ?? []) {
@@ -256,6 +266,7 @@ export class EyeStage {
     if (this.hovered) this.hovered.material.emissive.copy(this.hovered.userData.emissive);
     this.hovered = object;
     if (object) object.material.emissive.copy(object.userData.emissive).add(HIGHLIGHT);
+    this.dirty = true;
     this.renderer.domElement.style.cursor = object ? 'help' : 'grab';
   }
 

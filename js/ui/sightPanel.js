@@ -178,6 +178,7 @@ export function createSight(root, { parts, defaultsOf, bigOver, onScene, onLight
     pending = null;
     const s = current;
     const w = Math.round(view.clientWidth * (window.devicePixelRatio || 1));
+    if (!w) return; // hidden (another tab on phones): drawn when it shows, as its size changes
     const h = Math.round(w * VIEW_H / VIEW_W);
     if (w > 0 && (view.width !== w || view.height !== h)) {
       view.width = w;
