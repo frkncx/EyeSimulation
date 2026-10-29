@@ -74,7 +74,7 @@ export function createSight(root, { parts, defaultsOf, bigOver, onScene, onLight
       <p class="sight-missing" hidden></p>
     </div>
     <div class="sight-controls">
-      <section class="setting">
+      <section class="setting" data-row="light">
         <div class="setting-head">
           <span class="setting-name" tabindex="0" data-tip="${escapeHtml(LIGHT_TIP)}">Light</span>
           <output class="setting-value"></output>

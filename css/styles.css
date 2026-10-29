@@ -261,7 +261,7 @@ button { font: inherit; color: inherit; }
 }
 
 /* Phone-only pieces, hidden on wider screens. */
-.hint-phone, .eye-type-toggle, .eye-hint, .phone-tabs, .eye-menu-backdrop { display: none; }
+.hint-phone, .eye-type-toggle, .eye-hint, .phone-tabs, .eye-menu-backdrop, .compare-chips { display: none; }
 
 /* Phones and narrow windows (js/ui/phoneMenus.js): a fixed screen that never scrolls sideways. A short header,
    one section at a time in the middle, and a tab bar at the bottom. Sizes follow the usual phone guidelines:
@@ -369,6 +369,33 @@ button { font: inherit; color: inherit; }
   .setting input[type="range"] { height: 44px; }
   .choice { font-size: 16px; min-height: 48px; }
 
+  /* Compare: the 3D eye on top, the view under it, then one setting and the chips that pick it.
+     The panels and their groups step aside (display: contents) so their pieces can sit in this grid. */
+  body[data-tab="eye"] .layout { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto auto auto; height: 100%; }
+  body[data-tab="eye"] .eye-stage { display: flex; grid-area: 1 / 1; height: auto; min-height: 0; }
+  /* The UV and IR buttons float over the 3D view, like the cut bar, so the eye gets the stage's full height. */
+  body[data-tab="eye"] .stage-top { position: absolute; inset: 0 0 auto; z-index: 2; pointer-events: none; }
+  body[data-tab="eye"] .ray-buttons { pointer-events: auto; }
+  body[data-tab="eye"] :is(.settings-panel, .sight-panel, .settings, .setting-group, .sight, .sight-controls, .sight-settings) { display: contents; }
+  body[data-tab="eye"] :is(.panel > h2, .setting-group > h3, .spectrum, .scene-picker, .sharpness, .sight-notes, .placeholder, .setting:not(.is-focus), .setting-ends, .stage-hint) { display: none; }
+  /* The view keeps its shape and leaves the eye at least about a third of the screen. */
+  body[data-tab="eye"] .sight-view { grid-area: 2 / 1; justify-self: center; width: min(100%, calc(22dvh * 1.6)); border-radius: 0; }
+  body[data-tab="eye"] .setting.is-focus { grid-area: 3 / 1; padding: 10px 16px 0; background: var(--panel); }
+  /* Choices side by side in one row, so a setting with three options stays as short as a slider. */
+  body[data-tab="eye"] .setting.is-focus .choices { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); }
+  body[data-tab="eye"] .setting.is-focus .choice { padding-inline: 4px; font-size: 15px; line-height: 1.15; }
+  body[data-tab="eye"] .compare-chips {
+    grid-area: 4 / 1; display: flex; gap: 8px; padding: 8px 12px 10px; overflow-x: auto; scrollbar-width: none;
+    background: var(--panel); border-top: 1px solid var(--line);
+  }
+  .compare-chips::-webkit-scrollbar { display: none; }
+  .compare-chips button {
+    flex: none; height: 40px; padding: 0 14px; border: 1.5px solid var(--line); border-radius: 20px; background: var(--panel);
+    color: var(--ink); font: 600 15px var(--font); white-space: nowrap; cursor: pointer;
+  }
+  .compare-chips button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .compare-chips .compare-all { color: var(--accent); border-color: var(--accent); }
+
   /* Tab bar */
   .phone-tabs {
     display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -393,4 +420,10 @@ button { font: inherit; color: inherit; }
   .eye-type-toggle, .reset-button { height: 44px; }
   .phone-tabs button { flex-direction: row; gap: 8px; height: 48px; }
   .phone-tabs svg { width: 22px; height: 22px; }
+  /* Compare sideways: the 3D eye on the left, the view, setting and chips on the right. */
+  body[data-tab="eye"] .layout { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: auto auto minmax(0, 1fr); }
+  body[data-tab="eye"] .eye-stage { grid-area: 1 / 1 / 4 / 2; }
+  body[data-tab="eye"] .sight-view { grid-area: 1 / 2; width: min(100%, calc(36dvh * 1.6)); }
+  body[data-tab="eye"] .setting.is-focus { grid-area: 2 / 2; }
+  body[data-tab="eye"] .compare-chips { grid-area: 3 / 2; align-self: end; }
 }

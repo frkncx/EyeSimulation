@@ -1,5 +1,9 @@
-// Phones and narrow windows: one section at a time (3D eye, how it sees, settings) picked from a tab bar at
-// the bottom, and the eye types in a list that opens from the current one. Wider screens are left as they are.
+// Phones and narrow windows: one section at a time picked from a tab bar at the bottom, and the eye types in a
+// list that opens from the current one. Wider screens are left as they are.
+// The first tab, Compare, shows the 3D eye and the view together with one setting under them, picked from a
+// row of chips, so a change can be watched in both at once. It reuses the settings' own rows (CSS hides the rest).
+import { escapeHtml } from './glossary.js';
+
 export const PHONE = matchMedia('(max-width: 1279.98px)');
 
 /**
@@ -48,6 +52,7 @@ export function installPhoneMenus({ toggle, list, tabs, spectrum, settings }) {
     if (b) show(b.dataset.tab);
   });
   show('eye');
+  installCompare(settings.closest('.layout'), () => show('settings'));
 
   const home = spectrum.parentElement;
   const homeNext = spectrum.nextSibling;
@@ -58,4 +63,46 @@ export function installPhoneMenus({ toggle, list, tabs, spectrum, settings }) {
   };
   PHONE.addEventListener('change', place);
   place();
+}
+
+/** The chips that pick which setting the Compare tab shows, with "All settings" at the end. */
+function installCompare(layout, showAll) {
+  const chips = document.createElement('div');
+  chips.className = 'compare-chips';
+  chips.setAttribute('role', 'group');
+  chips.setAttribute('aria-label', 'Setting to adjust');
+  layout.append(chips);
+  let focus = null; // the shown row's data-row
+  let picked = false; // until a chip is tapped, the first setting shows (the list fills in after this runs)
+  let drawn = '';
+
+  const rows = () => [...layout.querySelectorAll('.settings-panel .setting, .sight-panel .setting')].filter(r => !r.hidden);
+  const render = () => {
+    pending = null;
+    const list = rows();
+    if (!picked || !list.some(r => r.dataset.row === focus)) focus = list[0]?.dataset.row ?? null;
+    for (const r of layout.querySelectorAll('.setting.is-focus')) if (r.dataset.row !== focus) r.classList.remove('is-focus');
+    list.find(r => r.dataset.row === focus)?.classList.add('is-focus');
+    const html = list.map(r => `<button type="button" data-row="${r.dataset.row}" aria-pressed="${r.dataset.row === focus}">${
+      escapeHtml(r.querySelector('.setting-name').textContent)}</button>`).join('')
+      + '<button type="button" class="compare-all">All settings</button>';
+    if (html !== drawn) chips.innerHTML = drawn = html; // unchanged chips keep their scroll position
+  };
+  // Settings rebuild for each eye and rows hide with other settings: redraw the chips once per frame at most.
+  let pending = null;
+  const later = () => { pending ??= requestAnimationFrame(render); };
+  for (const panel of layout.querySelectorAll('.settings-panel, .sight-panel')) {
+    new MutationObserver(later).observe(panel, { childList: true, subtree: true, attributeFilter: ['hidden'] });
+  }
+  render();
+
+  chips.addEventListener('click', e => {
+    if (e.target.closest('.compare-all')) return showAll();
+    const chip = e.target.closest('[data-row]');
+    if (!chip) return;
+    focus = chip.dataset.row;
+    picked = true;
+    render();
+    chips.querySelector(`[data-row="${focus}"]`)?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  });
 }
