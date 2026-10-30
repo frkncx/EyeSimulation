@@ -5,7 +5,7 @@ Pick an eye type, look at it in 3D, change a few settings, and see a scene the w
 Play it at <https://furkancx.itch.io/eye-simulation>.
 
 - **Top:** eye type buttons (Cup, Pinhole, Camera, Compound, Mirror), an Example dropdown with the animals
-  for that type (Human, Cat, Eagle, Octopus, Whale, Owl, Owl monkey, Jumping spider; Fly, Bee, Moth, Ant; Scallop; Nautilus;
+  for that type (Human, Cat, Eagle, Octopus, Owl, Owl monkey, Jumping spider; Fly, Bee, Moth, Ant; Scallop; Nautilus;
   Flatworm), the light spectrum bar (drag its ends to change what the eye sees), and Reset.
 - **Center:** one eye in 3D. Drag to rotate, scroll to zoom, "Cut open" slider, "Labels" toggle,
   and UV/IR buttons that show light rays entering the eye. Hover a part to learn what it does.
