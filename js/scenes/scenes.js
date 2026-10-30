@@ -1,4 +1,4 @@
-// The six built-in scenes for "How it sees", painted with plain canvas shapes.
+// The seven built-in scenes for "How it sees", painted with plain canvas shapes.
 //
 // Each scene is a few layers at different distances, far to near, so focus can blur some and not others.
 // Layers draw in a 640×400 box (the caller scales it). `glow` draws light sources (street lamps, windows):
@@ -9,6 +9,7 @@
 // `uv` draws hand-painted UV patterns on top, in grey (white = reflects a lot of UV).
 // A scene can set `uvLevel` (how strong its UV is) and `noIr` (no infrared at all).
 import { seeded, ellipse } from './paint.js';
+import { EARTH_RINGS } from './earthOutlines.js';
 
 export const SCENE_W = 640;
 export const SCENE_H = 400;
@@ -487,7 +488,301 @@ const fruit = {
   ],
 };
 
-export const SCENES = [garden, forest, beach, underwater, street, fruit];
+// Earth, the whole sunlit side, seen from far out (as from DSCOVR, 1.5 million km away) in late August, over Africa
+// and Europe. The sun is behind the viewer, so the middle of the globe is lit straight on and the edge only at a slant.
+// Coastlines come from earthOutlines.js. Ground colors were picked from NASA's Blue Marble Next Generation map for
+// August 2004 (used only as a reference) and brightened 1.3 times, about as the ground looks through the air.
+const EARTH = { lon: 15, lat: 10, x: 320, y: 200, r: 172 };
+const RAD = Math.PI / 180;
+/** Where a point on the globe lands in the scene, and how squashed a small patch there is (1 in the middle). */
+function globe(lon, lat) {
+  const p = lat * RAD, d = (lon - EARTH.lon) * RAD, p0 = EARTH.lat * RAD;
+  let x = Math.cos(p) * Math.sin(d);
+  let y = Math.cos(p0) * Math.sin(p) - Math.sin(p0) * Math.cos(p) * Math.cos(d);
+  const facing = Math.sin(p0) * Math.sin(p) + Math.cos(p0) * Math.cos(p) * Math.cos(d);
+  // A point on the far side is pulled onto the edge, so outlines that go round the back stay closed.
+  if (facing < 0) {
+    const k = Math.hypot(x, y);
+    x /= k;
+    y /= k;
+  }
+  return [EARTH.x + EARTH.r * x, EARTH.y - EARTH.r * y, facing];
+}
+function globePath(ctx, points) {
+  for (let i = 0; i < points.length; i += 2) ctx[i ? 'lineTo' : 'moveTo'](...globe(points[i], points[i + 1]));
+  ctx.closePath();
+}
+const EARTH_PX_PER_DEG = EARTH.r * RAD;
+/** Round off a closed outline's corners (Chaikin's method), so the traced grid's steps don't show. */
+function rounded(points, times = 2) {
+  let p = points;
+  for (let t = 0; t < times; t++) {
+    const out = [];
+    for (let i = 0; i < p.length; i += 2) {
+      const j = (i + 2) % p.length;
+      out.push(0.75 * p[i] + 0.25 * p[j], 0.75 * p[i + 1] + 0.25 * p[j + 1], 0.25 * p[i] + 0.75 * p[j], 0.25 * p[i + 1] + 0.75 * p[j + 1]);
+    }
+    p = out;
+  }
+  return p;
+}
+const COASTS = EARTH_RINGS.map(ring => rounded(ring));
+
+// Ground cover, painted over the land in this order with soft edges. [color, outline as lon, lat pairs].
+const COVER = [
+  // Africa
+  ['#ebc28c', [-17, 21, -12, 28, -9, 30, -2, 33, 8, 33, 11, 32, 20, 30, 30, 31, 33, 29, 35, 24, 37, 19, 34, 17, 25, 16, 15, 16, 5, 17, -5, 17, -12, 17, -16, 17]],
+  ['#b4a06a', [-17, 13, -16, 17, 0, 17, 15, 16, 25, 16, 35, 16, 38, 13, 30, 12, 15, 12, 0, 13, -10, 12]],
+  ['#3c531d', [-17, 9, -17, 13, 0, 12, 15, 11, 30, 11, 36, 9, 34, 5, 25, 5, 10, 7, 0, 8, -10, 8]],
+  ['#243511', [-13, 9, -8, 8, 0, 7, 5, 7, 9, 6, 15, 5, 25, 5, 31, 3, 30, -5, 25, -6, 17, -5, 13, -5, 9, -2, 9, 4, 3, 6, -5, 5, -8, 4.5, -12, 7]],
+  ['#806942', [33, 5, 38, 10, 43, 12, 51, 11, 42, 0, 39, -5, 35, -8, 33, -3]],
+  ['#a58c63', [41, 12, 51, 12, 48, 4, 42, -1, 40, 3]],
+  ['#584b2e', [12, -6, 30, -6, 40, -8, 40, -17, 33, -20, 24, -18, 13, -17]],
+  ['#c19767', [13, -18, 24, -17, 28, -22, 27, -27, 22, -30, 17, -30, 14, -25]],
+  ['#655133', [31, -20, 35, -22, 33, -28, 30, -31, 28, -30, 30, -24]],
+  ['#a78a62', [18, -30, 25, -30, 27, -32, 22, -34, 18, -33]],
+  ['#9a8458', [-10, 30, -9, 34, -2, 35.5, 10, 37, 11, 34, 0, 33, -5, 31]],
+  ['#3f4a22', [47.5, -14, 50, -15.5, 48.5, -21, 47, -25, 46.5, -21, 48, -16]],
+  // Arabia, the Middle East, Central and South Asia
+  ['#ebc89a', [35, 28, 38, 32, 44, 33, 48, 30, 56, 26, 59, 22, 52, 16, 43, 13, 39, 19, 36, 25]],
+  ['#b9a07a', [36, 33, 40, 37, 45, 37, 50, 37, 56, 37, 62, 36, 66, 30, 66, 25, 57, 25, 50, 30, 44, 31]],
+  ['#a38a5a', [26, 37, 26, 41, 36, 42, 44, 41, 44, 37, 36, 36.5]],
+  ['#796942', [30, 45, 40, 48, 50, 48, 60, 50, 80, 50, 85, 47, 75, 43, 60, 43, 52, 45, 45, 44, 35, 45]],
+  ['#b49d6e', [50, 37, 52, 45, 60, 46, 70, 45, 80, 44, 78, 38, 66, 37, 60, 37]],
+  ['#5c5f30', [68, 24, 72, 21, 76, 8, 80, 10, 80, 16, 87, 22, 90, 26, 85, 28, 78, 30, 73, 32, 70, 30]],
+  ['#beac80', [68, 24, 70, 30, 75, 30, 75, 26, 71, 23]],
+  ['#d7c298', [76, 37, 78, 41, 88, 42, 92, 40, 88, 37, 80, 36]],
+  ['#ac9468', [78, 30, 78, 36, 92, 36, 100, 34, 96, 29, 85, 28]],
+  ['#2a3c14', [92, 22, 100, 22, 110, 22, 110, 10, 104, 8, 98, 10, 94, 16]],
+  // Europe and northern Asia
+  ['#92794a', [-9, 37, -9, 43, -2, 43.5, 3, 42, 0, 39, -2, 36.7, -6, 36]],
+  ['#444921', [-5, 43, -5, 48, 0, 51, 8, 55, 12, 56, 20, 55, 30, 55, 40, 55, 50, 55, 52, 50, 45, 47, 40, 45, 30, 44, 28, 41, 20, 40, 15, 42, 10, 44, 3, 43]],
+  ['#6a6236', [8, 44, 12, 46, 19, 46, 23, 44, 26, 41, 22, 37, 16, 38, 12, 42]],
+  ['#1d2a0b', [5, 59, 10, 64, 15, 69, 30, 70, 45, 67, 60, 66, 80, 67, 110, 68, 110, 52, 85, 55, 60, 57, 45, 58, 30, 58, 18, 57, 10, 58]],
+  ['#4e4d30', [25, 70, 40, 68, 60, 69, 80, 72, 110, 75, 110, 70, 80, 67, 60, 66, 45, 67, 30, 69]],
+  // South America, near the left edge
+  ['#1f330d', [-80, 2, -75, 8, -60, 8, -50, 2, -45, -3, -50, -10, -60, -13, -70, -12, -76, -6]],
+  ['#6e5a34', [-60, -13, -50, -10, -44, -3, -35, -6, -40, -20, -48, -24, -55, -22, -60, -17]],
+  ['#585629', [-62, -30, -55, -25, -48, -26, -52, -34, -58, -38, -63, -38]],
+  ['#605233', [-72, -40, -63, -38, -63, -43, -66, -47, -68, -52, -72, -52]],
+  ['#ba9c7e', [-71, -30, -69, -18, -66, -16, -66, -24, -68, -30]],
+  // Ice
+  ['#eef2f5', [-75, 84, -10, 84, -15, 70, -40, 59.5, -52, 66, -60, 76]],
+  ['#e8ebee', [-90, -62, 0, -62, 60, -62, 120, -62, 120, -89, -90, -89]],
+];
+
+/** A small flat patch on the globe (sea ice), squashed toward the middle the more it is seen at a slant. */
+function cloud(ctx, lon, lat, sizeDeg, stretch, angle, alpha, rgb = '255,255,255') {
+  const [x, y, facing] = globe(lon, lat);
+  if (facing <= 0) return;
+  const r = sizeDeg * EARTH_PX_PER_DEG;
+  const toward = Math.atan2(y - EARTH.y, x - EARTH.x);
+  ctx.fillStyle = `rgba(${rgb},${alpha})`;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(toward);
+  ctx.scale(Math.max(0.05, facing), 1);
+  ctx.rotate(angle - toward);
+  ellipse(ctx, 0, 0, r * stretch, r);
+  ctx.fill();
+  ctx.restore();
+}
+
+// Clouds: a wispy noise pattern on the sphere, kept where late-August clouds really are. Thick along the rain belt
+// north of the equator (the West African monsoon) and over India (its monsoon); a sheet of low cloud over the cold
+// South Atlantic off Namibia and Angola; storm belts in the far north and the Southern Ocean; little over the deserts,
+// southern Africa in its dry season and the Mediterranean summer. Storms twist the pattern into spirals (anticlockwise
+// north of the equator, clockwise south of it).
+const near = (v, mid, width) => Math.exp(-(((v - mid) / width) ** 2));
+function cloudiness(lon, lat) {
+  let c = 0.38;
+  c = Math.max(c, 0.66 * near(lat, 9, 5) * (lon > -60 && lon < 45 ? 1 : 0.7));
+  c = Math.max(c, 0.85 * near(lat, 17, 7) * near(lon, 82, 14));
+  c = Math.max(c, 0.8 * near(lat, -16, 8) * near(lon, 2, 10));
+  c = Math.max(c, 0.65 * near(lat, 60, 10));
+  c = Math.max(c, 0.85 * near(lat, -50, 10));
+  const dry = Math.max(
+    near(lat, 24, 7) * (lon > -20 && lon < 62 ? 1 : 0.3),
+    near(lat, -14, 11) * near(lon, 26, 12),
+    near(lat, 38, 4) * near(lon, 18, 18),
+  );
+  return c * (1 - 0.93 * dry);
+}
+const STORMS = [[-28, 57, 7, 1], [-35, -48, 8, -1], [5, -52, 9, -1], [45, -47, 8, -1], [85, -50, 7, -1]];
+
+// Smooth random values on a 3D grid, mixed at five sizes (value noise), so the pattern has no seam on the globe.
+function hash3(x, y, z) {
+  let h = Math.imul(x, 374761393) ^ Math.imul(y, 668265263) ^ Math.imul(z, 2147483647);
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+}
+function noise3(x, y, z) {
+  const xi = Math.floor(x), yi = Math.floor(y), zi = Math.floor(z);
+  const s = t => t * t * (3 - 2 * t);
+  const u = s(x - xi), v = s(y - yi), w = s(z - zi);
+  const lerp = (a, b, t) => a + (b - a) * t;
+  const c = (dx, dy, dz) => hash3(xi + dx, yi + dy, zi + dz);
+  return lerp(
+    lerp(lerp(c(0, 0, 0), c(1, 0, 0), u), lerp(c(0, 1, 0), c(1, 1, 0), u), v),
+    lerp(lerp(c(0, 0, 1), c(1, 0, 1), u), lerp(c(0, 1, 1), c(1, 1, 1), u), v), w);
+}
+function fbm(x, y, z) {
+  let sum = 0, amp = 0.5, f = 1;
+  for (let i = 0; i < 5; i++) {
+    sum += amp * noise3(x * f, y * f, z * f);
+    amp *= 0.5;
+    f *= 2.03;
+  }
+  return sum / 0.97;
+}
+const unit = (lon, lat) => [Math.cos(lat * RAD) * Math.cos(lon * RAD), Math.cos(lat * RAD) * Math.sin(lon * RAD), Math.sin(lat * RAD)];
+
+let cloudLayer = null;
+/** The clouds over the whole disk, worked out once (a fraction of a second) and reused. */
+function cloudCanvas() {
+  if (cloudLayer) return cloudLayer;
+  const N = 1024;
+  const canvas = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(N, N) : Object.assign(document.createElement('canvas'), { width: N, height: N });
+  const ctx = canvas.getContext('2d');
+  const img = ctx.createImageData(N, N);
+  const storms = STORMS.map(([lon, lat, size, turn]) => ({ at: unit(lon, lat), size: size * RAD, turn }));
+  const p0 = EARTH.lat * RAD;
+  for (let py = 0; py < N; py++) {
+    for (let px = 0; px < N; px++) {
+      const u = (px + 0.5) / N * 2 - 1, v = 1 - (py + 0.5) / N * 2;
+      const rho = Math.hypot(u, v);
+      if (rho >= 1) continue;
+      // Back from the disk to longitude and latitude (the orthographic projection turned around).
+      const c = Math.asin(rho);
+      const lat = Math.asin(Math.cos(c) * Math.sin(p0) + (rho ? v * Math.sin(c) * Math.cos(p0) / rho : 0)) / RAD;
+      const lon = EARTH.lon + Math.atan2(u * Math.sin(c), rho * Math.cos(c) * Math.cos(p0) - v * Math.sin(c) * Math.sin(p0)) / RAD;
+      let [x, y, z] = unit(lon, lat);
+      let swirl = 0;
+      for (const s of storms) {
+        const d = Math.acos(Math.min(1, x * s.at[0] + y * s.at[1] + z * s.at[2]));
+        if (d > s.size * 3) continue;
+        // Turn the point around the storm's center, more near the middle: the pattern winds into a spiral.
+        const a = s.turn * 4 * Math.exp(-d / s.size);
+        const [kx, ky, kz] = s.at;
+        const cos = Math.cos(a), sin = Math.sin(a), dot = kx * x + ky * y + kz * z;
+        [x, y, z] = [
+          x * cos + (ky * z - kz * y) * sin + kx * dot * (1 - cos),
+          y * cos + (kz * x - kx * z) * sin + ky * dot * (1 - cos),
+          z * cos + (kx * y - ky * x) * sin + kz * dot * (1 - cos)];
+        swirl = Math.max(swirl, Math.exp(-((d / s.size) ** 2)));
+      }
+      // Large patches come and go with the weather: clear areas and big clusters, not an even spread.
+      const weather = 0.6 + 0.8 * noise3(x * 2.5 + 5, y * 2.5 + 7, z * 2.5 + 3);
+      const cover = Math.min(1, Math.max(cloudiness(lon, lat) * weather, 0.85 * swirl));
+      const n = fbm(x * 9 + 11, y * 9 + 23, z * 9 + 37);
+      const cut = 0.66 - 0.4 * cover;
+      const alpha = Math.min(1, Math.max(0, (n - cut) / 0.13)) * 0.95;
+      const i = 4 * (py * N + px);
+      img.data[i] = img.data[i + 1] = img.data[i + 2] = 255;
+      img.data[i + 3] = Math.round(255 * alpha);
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  cloudLayer = canvas;
+  return canvas;
+}
+
+// Cities that show on the night side, [lon, lat].
+const CITIES = [
+  [-0.1, 51.5], [2.3, 48.9], [12.5, 41.9], [13.4, 52.5], [37.6, 55.8], [30.3, 59.9], [-3.7, 40.4], [2.2, 41.4], [9.2, 45.5],
+  [4.9, 52.4], [4.4, 50.8], [6.9, 50.9], [8.7, 50.1], [11.6, 48.1], [16.4, 48.2], [19, 47.5], [21, 52.2], [14.4, 50.1],
+  [-2.2, 53.5], [-6.3, 53.3], [-9.1, 38.7], [26.1, 44.4], [23.7, 38], [29, 41], [32.9, 39.9], [30.5, 50.5], [27.6, 53.9],
+  [44.5, 48.7], [49.1, 55.8], [60.6, 56.8], [37.6, 47], [39.7, 47.2], [35.2, 31.8], [35.5, 33.9], [36.3, 33.5], [44.4, 33.3],
+  [51.4, 35.7], [59.6, 36.3], [46.7, 24.7], [39.8, 21.4], [50.6, 26.2], [51.5, 25.3], [55.3, 25.2], [54.4, 24.5], [58.4, 23.6],
+  [31.2, 30], [29.9, 31.2], [31.3, 27.2], [32.9, 24.1], [32.6, 15.6], [38.7, 9], [36.8, -1.3], [39.3, -6.8], [32.6, -25.9],
+  [28, -26.2], [28.2, -25.7], [31, -29.9], [18.4, -33.9], [25.6, -33.9], [3.4, 6.5], [7.5, 9.1], [8.5, 12], [-0.2, 5.6],
+  [-4, 5.3], [-17.4, 14.7], [-7.6, 33.6], [-6.8, 34], [3.1, 36.8], [10.2, 36.8], [13.2, 32.9], [15.3, -4.3], [13.2, -8.8],
+  [72.9, 19.1], [77.2, 28.6], [88.4, 22.6], [80.3, 13.1], [77.6, 13], [78.5, 17.4], [67, 24.9], [74.3, 31.5], [69.2, 41.3],
+  [-46.6, -23.5], [-43.2, -22.9], [-47.9, -15.8], [-38.5, -13], [-34.9, -8.1], [-58.4, -34.6], [-56.2, -34.9], [-70.7, -33.4],
+];
+
+const earth = {
+  id: 'earth', label: 'Earth from orbit',
+  layers: [{ distanceM: Infinity,
+    draw(ctx) {
+      ctx.fillStyle = '#000';
+      ctx.fillRect(0, 0, SCENE_W, SCENE_H);
+      const k = ctx.getTransform().a; // filters work in canvas pixels, not scene units
+      ctx.save();
+      blob(ctx, EARTH.x, EARTH.y, EARTH.r, EARTH.r, '#0f2a5c');
+      ctx.clip();
+      // The Arctic sea ice at the end of summer, around the North Pole.
+      ctx.filter = `blur(${2 * k}px)`;
+      for (let lon = -180; lon < 180; lon += 8) for (let lat = 80; lat < 90; lat += 3) cloud(ctx, lon, lat, 3, 1.5, 0, 0.9, '223,229,234');
+      ctx.filter = 'none';
+      ctx.beginPath();
+      for (const ring of COASTS) globePath(ctx, ring);
+      ctx.fillStyle = '#665734';
+      ctx.fill('evenodd');
+      // Ground cover stays on land, with soft edges between regions.
+      ctx.save();
+      ctx.clip('evenodd');
+      ctx.filter = `blur(${4 * k}px)`;
+      for (const [color, outline] of COVER) {
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        globePath(ctx, outline);
+        ctx.fill();
+      }
+      ctx.filter = 'none';
+      ctx.restore();
+      ctx.drawImage(cloudCanvas(), EARTH.x - EARTH.r, EARTH.y - EARTH.r, 2 * EARTH.r, 2 * EARTH.r);
+      // Sunlight hits the edge of the globe at a slant, so it is dimmer there (brightness about the cosine of the angle).
+      ctx.globalCompositeOperation = 'multiply';
+      const slant = ctx.createRadialGradient(EARTH.x, EARTH.y, 0, EARTH.x, EARTH.y, EARTH.r);
+      [[0, 1], [0.5, 0.87], [0.7, 0.71], [0.85, 0.53], [0.95, 0.31], [1, 0.15]]
+        .forEach(([t, b]) => slant.addColorStop(t, `rgb(${Math.round(255 * b)},${Math.round(255 * b)},${Math.round(255 * b)})`));
+      ctx.fillStyle = slant;
+      ctx.fillRect(0, 0, SCENE_W, SCENE_H);
+      ctx.globalCompositeOperation = 'source-over';
+      // Toward the edge you look through more air, which scatters blue light back: a blue haze.
+      const haze = ctx.createRadialGradient(EARTH.x, EARTH.y, EARTH.r * 0.55, EARTH.x, EARTH.y, EARTH.r);
+      haze.addColorStop(0, 'rgba(110,160,255,0)');
+      haze.addColorStop(1, 'rgba(110,160,255,0.4)');
+      ctx.fillStyle = haze;
+      ctx.fillRect(0, 0, SCENE_W, SCENE_H);
+      ctx.restore();
+      // The thin layer of air seen edge-on, just past the rim.
+      // (Inside a gradient's first circle canvas keeps its first color, so these start from the middle.)
+      const air = ctx.createRadialGradient(EARTH.x, EARTH.y, 0, EARTH.x, EARTH.y, EARTH.r * 1.025);
+      air.addColorStop(0, 'rgba(120,170,255,0)');
+      air.addColorStop(0.97, 'rgba(120,170,255,0)');
+      air.addColorStop(1 / 1.025, 'rgba(120,170,255,0.55)');
+      air.addColorStop(1, 'rgba(120,170,255,0)');
+      ctx.fillStyle = air;
+      ctx.fillRect(0, 0, SCENE_W, SCENE_H);
+    },
+    // Air scatters short light far more (about 6 times more at 350 nm than at 550 nm), so in UV a haze
+    // covers the ground and the globe glows; clouds still show through.
+    uv(ctx) {
+      blob(ctx, EARTH.x, EARTH.y, EARTH.r, EARTH.r, 'rgba(150,150,150,0.55)');
+      const glow = ctx.createRadialGradient(EARTH.x, EARTH.y, 0, EARTH.x, EARTH.y, EARTH.r * 1.06);
+      glow.addColorStop(0, 'rgba(220,220,220,0)');
+      glow.addColorStop(0.85, 'rgba(220,220,220,0)');
+      glow.addColorStop(1 / 1.06, 'rgba(220,220,220,0.8)');
+      glow.addColorStop(1, 'rgba(220,220,220,0)');
+      ctx.fillStyle = glow;
+      ctx.fillRect(0, 0, SCENE_W, SCENE_H);
+    },
+    // The night side: city lights.
+    glow(ctx, light) {
+      const on = lampsOn(light);
+      if (!on) return;
+      ctx.globalAlpha = on;
+      for (const [lon, lat] of CITIES) {
+        const [x, y, facing] = globe(lon, lat);
+        if (facing > 0) blob(ctx, x, y, 1.6, 1.6, '#ffd27a');
+      }
+      ctx.globalAlpha = 1;
+    } }],
+};
+
+export const SCENES = [garden, forest, beach, underwater, street, fruit, earth];
 
 /** A picture the user loaded, cropped to fill the view, treated as far away. */
 export function imageScene(image) {
