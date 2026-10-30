@@ -24,7 +24,8 @@ const BIG_EYE_MM = 30;
 const EYE_NOTES = [
   { when: s => s.amblyopia === 'on', text: 'The eye is healthy. The brain gives its signal less weight.' },
   { when: s => s.eyeSizeMm >= BIG_EYE_MM, text: 'Bigger eye, finer detail: but it takes up more of the head.' },
-  { when: s => s.eyeShape === 'tube', text: 'Can’t move in its socket: the animal turns its head instead.' },
+  { when: s => s.eyeShape === 'tube' && !s.retinaMoves, text: 'Can’t move in its socket: the animal turns its head instead.' },
+  { when: s => s.eyeShape === 'tube' && s.retinaMoves, text: 'The eye tube can’t move: muscles swing the retina behind the lens instead.' },
   { when: (s, st) => st.rays.uv && bandReach(s).uv, text: 'Seeing UV: the retina is exposed to light that damages it over a lifetime.' },
 ];
 

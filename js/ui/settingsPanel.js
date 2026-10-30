@@ -29,7 +29,8 @@ function rodsText(t) {
 
 /**
  * What the current type and example allow: their settings, slider limits, and choice options.
- * The example can only narrow what its type allows, never widen it, and can hide settings it doesn't have.
+ * The example's own ranges replace its type's (an animal far smaller than the rest, like a spider, can go below
+ * them), its `steps` give its sliders finer steps, and it can hide settings it doesn't have.
  * Its `tips` add to a setting's hover text, such as where its values come from.
  */
 export function eyeConfig(type, example) {
@@ -38,9 +39,13 @@ export function eyeConfig(type, example) {
     key: `${type.id}/${example.id}`,
     settings: type.settings.filter(id => !hidden.includes(id)),
     allowed: { ...type.allowed, ...example.allowed },
+    steps: example.steps ?? {},
     tips: example.tips ?? {},
   };
 }
+
+/** A slider's step for this eye. */
+export const stepFor = (setting, eye) => eye.steps?.[setting.id] ?? setting.step;
 
 /**
  * Slider limits for this eye: the example's own range where it has one, else the setting's. The pupil's is each
@@ -51,8 +56,10 @@ export function rangeFor(setting, eye, settings) {
   let [min, max] = eye.allowed?.[setting.id] ?? [setting.min, setting.max];
   if (setting.id === 'pupilMm' && settings?.pupilRefEyeMm) {
     const k = settings.eyeSizeMm / settings.pupilRefEyeMm;
-    const snap = v => Math.max(setting.step, Math.round((v * k) / setting.step) * setting.step);
-    [min, max] = [snap(min), Math.max(snap(min), Math.floor((max * k) / setting.step) * setting.step)];
+    const step = stepFor(setting, eye);
+    // Rounded to the step, so a tiny eye's slider ends on clean values like 0.45, not 0.4500000001.
+    const snap = v => +Math.max(step, Math.round((v * k) / step) * step).toFixed(6);
+    [min, max] = [snap(min), Math.max(snap(min), +(Math.floor((max * k) / step) * step).toFixed(6))];
   }
   return [min, max];
 }
@@ -109,7 +116,7 @@ export function createSettings(root, data, onChange, place = 'settings') {
           ${s.type === 'range' ? '<output class="setting-value"></output>' : ''}
         </div>
         ${s.type === 'range'
-          ? `<input type="range" data-setting="${s.id}" step="${s.step}" aria-label="${escapeHtml(s.label)}">
+          ? `<input type="range" data-setting="${s.id}" step="${stepFor(s, eye)}" aria-label="${escapeHtml(s.label)}">
              ${s.ends ? `<div class="setting-ends" aria-hidden="true">${s.ends.map(t => `<span>${escapeHtml(t)}</span>`).join('')}</div>` : ''}`
           : `<div class="choices" role="group" aria-label="${escapeHtml(s.label)}" style="--cols:${s.columns ?? 2}">
                ${optionsFor(s, eye).map(o => `<button type="button" class="choice" data-setting="${s.id}" data-option="${o.id}"

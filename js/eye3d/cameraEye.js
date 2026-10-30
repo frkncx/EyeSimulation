@@ -246,12 +246,14 @@ export function buildCameraEye({
   eyeSizeMm = 24, pupilMm = 8, pupilShape = 'round', focus = 1, retina = 'away', tapetum = 'off', irisColor = '#6b4a2e',
   refraction = 0, astigmatism = 'off', cylinderD = 1.5, axisDeg = 180, eyeShape = 'round', rods = null,
   peaks = null, lensCutoffNm = null, uvLens = 'none', rays = { uv: false, ir: false }, lensFocus = 'shape',
-  spots = [{ part: 'fovea' }], darkPupilMm, pupilRefEyeMm, blindSpot, pecten = null,
+  spots = [{ part: 'fovea' }], darkPupilMm, pupilRefEyeMm, blindSpot, pecten = null, drawZoom = 1,
 } = {}) {
   const reach = bandReach({ peaks, lensCutoffNm, uvLens });
   const group = new THREE.Group();
   const scale = eyeSizeMm / (2 * R);
-  group.scale.setScalar(scale);
+  // A tiny eye (a spider's, 2 mm) is drawn `drawZoom` times larger than life, so it can be seen and cut open.
+  const drawn = scale * drawZoom;
+  group.scale.setScalar(drawn);
   // Nearsighted eyes are a little too long front to back, farsighted ones a little too short.
   group.scale.z *= 1 - AXIAL_STRETCH * refraction;
   const tube = eyeShape === 'tube';
@@ -547,5 +549,5 @@ export function buildCameraEye({
     ...Object.entries(rayTails).map(([part, position]) => ({ part, position, side: 'left' })),
   ].filter(a => (a.part !== 'blindSpot' || wiringInFront) && (a.part !== 'tapetum' || hasTapetum) &&
     (a.part !== 'pecten' || pectenLabelAt));
-  return { group, anchors, radius: R * scale, scale };
+  return { group, anchors, radius: R * drawn, scale: drawn };
 }
