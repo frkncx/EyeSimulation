@@ -44,6 +44,8 @@ export class EyeStage {
     this.controls.enableDamping = true;
     this.controls.minDistance = 28;
     this.controls.maxDistance = 140;
+    // The wheel moves the camera inside its own event (the next update() then reports no change), so redraw on it.
+    this.controls.addEventListener('change', () => { this.dirty = true; });
 
     // Keeps the half of the eye where x <= constant; sliding the constant to 0 cuts it in half.
     this.clip = new THREE.Plane(new THREE.Vector3(-1, 0, 0), 0);
