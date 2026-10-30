@@ -701,62 +701,83 @@ const CITIES = [
   [-46.6, -23.5], [-43.2, -22.9], [-47.9, -15.8], [-38.5, -13], [-34.9, -8.1], [-58.4, -34.6], [-56.2, -34.9], [-70.7, -33.4],
 ];
 
+let earthPicture = null;
+/** The globe never changes, so it is painted once per view size and zoom and then reused: its soft blurs are slow. */
+function drawEarth(ctx) {
+  const t = ctx.getTransform();
+  const { width, height } = ctx.canvas;
+  const key = [t.a, t.b, t.c, t.d, t.e, t.f, width, height].join();
+  if (earthPicture?.key !== key) {
+    const canvas = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(width, height) : Object.assign(document.createElement('canvas'), { width, height });
+    const pctx = canvas.getContext('2d');
+    pctx.setTransform(t);
+    paintEarth(pctx);
+    earthPicture = { key, canvas };
+  }
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.drawImage(earthPicture.canvas, 0, 0);
+  ctx.restore();
+}
+
+function paintEarth(ctx) {
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, SCENE_W, SCENE_H);
+  const k = ctx.getTransform().a; // filters work in canvas pixels, not scene units
+  ctx.save();
+  blob(ctx, EARTH.x, EARTH.y, EARTH.r, EARTH.r, '#0f2a5c');
+  ctx.clip();
+  // The Arctic sea ice at the end of summer, around the North Pole.
+  ctx.filter = `blur(${2 * k}px)`;
+  for (let lon = -180; lon < 180; lon += 8) for (let lat = 80; lat < 90; lat += 3) cloud(ctx, lon, lat, 3, 1.5, 0, 0.9, '223,229,234');
+  ctx.filter = 'none';
+  ctx.beginPath();
+  for (const ring of COASTS) globePath(ctx, ring);
+  ctx.fillStyle = '#665734';
+  ctx.fill('evenodd');
+  // Ground cover stays on land, with soft edges between regions.
+  ctx.save();
+  ctx.clip('evenodd');
+  ctx.filter = `blur(${4 * k}px)`;
+  for (const [color, outline] of COVER) {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    globePath(ctx, outline);
+    ctx.fill();
+  }
+  ctx.filter = 'none';
+  ctx.restore();
+  ctx.drawImage(cloudCanvas(), EARTH.x - EARTH.r, EARTH.y - EARTH.r, 2 * EARTH.r, 2 * EARTH.r);
+  // Sunlight hits the edge of the globe at a slant, so it is dimmer there (brightness about the cosine of the angle).
+  ctx.globalCompositeOperation = 'multiply';
+  const slant = ctx.createRadialGradient(EARTH.x, EARTH.y, 0, EARTH.x, EARTH.y, EARTH.r);
+  [[0, 1], [0.5, 0.87], [0.7, 0.71], [0.85, 0.53], [0.95, 0.31], [1, 0.15]]
+    .forEach(([t, b]) => slant.addColorStop(t, `rgb(${Math.round(255 * b)},${Math.round(255 * b)},${Math.round(255 * b)})`));
+  ctx.fillStyle = slant;
+  ctx.fillRect(0, 0, SCENE_W, SCENE_H);
+  ctx.globalCompositeOperation = 'source-over';
+  // Toward the edge you look through more air, which scatters blue light back: a blue haze.
+  const haze = ctx.createRadialGradient(EARTH.x, EARTH.y, EARTH.r * 0.55, EARTH.x, EARTH.y, EARTH.r);
+  haze.addColorStop(0, 'rgba(110,160,255,0)');
+  haze.addColorStop(1, 'rgba(110,160,255,0.4)');
+  ctx.fillStyle = haze;
+  ctx.fillRect(0, 0, SCENE_W, SCENE_H);
+  ctx.restore();
+  // The thin layer of air seen edge-on, just past the rim.
+  // (Inside a gradient's first circle canvas keeps its first color, so these start from the middle.)
+  const air = ctx.createRadialGradient(EARTH.x, EARTH.y, 0, EARTH.x, EARTH.y, EARTH.r * 1.025);
+  air.addColorStop(0, 'rgba(120,170,255,0)');
+  air.addColorStop(0.97, 'rgba(120,170,255,0)');
+  air.addColorStop(1 / 1.025, 'rgba(120,170,255,0.55)');
+  air.addColorStop(1, 'rgba(120,170,255,0)');
+  ctx.fillStyle = air;
+  ctx.fillRect(0, 0, SCENE_W, SCENE_H);
+}
+
 const earth = {
   id: 'earth', label: 'Earth from orbit',
   layers: [{ distanceM: Infinity,
-    draw(ctx) {
-      ctx.fillStyle = '#000';
-      ctx.fillRect(0, 0, SCENE_W, SCENE_H);
-      const k = ctx.getTransform().a; // filters work in canvas pixels, not scene units
-      ctx.save();
-      blob(ctx, EARTH.x, EARTH.y, EARTH.r, EARTH.r, '#0f2a5c');
-      ctx.clip();
-      // The Arctic sea ice at the end of summer, around the North Pole.
-      ctx.filter = `blur(${2 * k}px)`;
-      for (let lon = -180; lon < 180; lon += 8) for (let lat = 80; lat < 90; lat += 3) cloud(ctx, lon, lat, 3, 1.5, 0, 0.9, '223,229,234');
-      ctx.filter = 'none';
-      ctx.beginPath();
-      for (const ring of COASTS) globePath(ctx, ring);
-      ctx.fillStyle = '#665734';
-      ctx.fill('evenodd');
-      // Ground cover stays on land, with soft edges between regions.
-      ctx.save();
-      ctx.clip('evenodd');
-      ctx.filter = `blur(${4 * k}px)`;
-      for (const [color, outline] of COVER) {
-        ctx.fillStyle = color;
-        ctx.beginPath();
-        globePath(ctx, outline);
-        ctx.fill();
-      }
-      ctx.filter = 'none';
-      ctx.restore();
-      ctx.drawImage(cloudCanvas(), EARTH.x - EARTH.r, EARTH.y - EARTH.r, 2 * EARTH.r, 2 * EARTH.r);
-      // Sunlight hits the edge of the globe at a slant, so it is dimmer there (brightness about the cosine of the angle).
-      ctx.globalCompositeOperation = 'multiply';
-      const slant = ctx.createRadialGradient(EARTH.x, EARTH.y, 0, EARTH.x, EARTH.y, EARTH.r);
-      [[0, 1], [0.5, 0.87], [0.7, 0.71], [0.85, 0.53], [0.95, 0.31], [1, 0.15]]
-        .forEach(([t, b]) => slant.addColorStop(t, `rgb(${Math.round(255 * b)},${Math.round(255 * b)},${Math.round(255 * b)})`));
-      ctx.fillStyle = slant;
-      ctx.fillRect(0, 0, SCENE_W, SCENE_H);
-      ctx.globalCompositeOperation = 'source-over';
-      // Toward the edge you look through more air, which scatters blue light back: a blue haze.
-      const haze = ctx.createRadialGradient(EARTH.x, EARTH.y, EARTH.r * 0.55, EARTH.x, EARTH.y, EARTH.r);
-      haze.addColorStop(0, 'rgba(110,160,255,0)');
-      haze.addColorStop(1, 'rgba(110,160,255,0.4)');
-      ctx.fillStyle = haze;
-      ctx.fillRect(0, 0, SCENE_W, SCENE_H);
-      ctx.restore();
-      // The thin layer of air seen edge-on, just past the rim.
-      // (Inside a gradient's first circle canvas keeps its first color, so these start from the middle.)
-      const air = ctx.createRadialGradient(EARTH.x, EARTH.y, 0, EARTH.x, EARTH.y, EARTH.r * 1.025);
-      air.addColorStop(0, 'rgba(120,170,255,0)');
-      air.addColorStop(0.97, 'rgba(120,170,255,0)');
-      air.addColorStop(1 / 1.025, 'rgba(120,170,255,0.55)');
-      air.addColorStop(1, 'rgba(120,170,255,0)');
-      ctx.fillStyle = air;
-      ctx.fillRect(0, 0, SCENE_W, SCENE_H);
-    },
+    draw: drawEarth,
     // Air scatters short light far more (about 6 times more at 350 nm than at 550 nm), so in UV a haze
     // covers the ground and the globe glows; clouds still show through.
     uv(ctx) {
