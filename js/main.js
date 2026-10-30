@@ -97,10 +97,14 @@ async function main() {
   });
   const settingsPanel = createSettings($('#settings'), data, changeSetting);
 
-  /** "Custom" while any setting on screen, or the spectrum, differs from the example's own values. */
+  /**
+   * "Custom" while any setting on screen, or the spectrum, differs from the example's own values. Focus and vision
+   * problems don't count: they are how this animal is looking or a problem it has, not a different eye.
+   */
+  const ownWay = setting => setting.panel === 'sight' || setting.section === 'Vision problems';
   const isCustom = s => {
     const example = exampleById[s.exampleId];
-    return configFor(s).settings.some(id =>
+    return configFor(s).settings.some(id => !ownWay(settingById[id]) &&
       shows(settingById[id], s.settings) && s.settings[id] !== example.defaults[id]) ||
       String(s.settings.peaks) !== String(example.defaults.peaks) || s.settings.uvLens !== example.defaults.uvLens;
   };
