@@ -250,11 +250,14 @@ export function buildCameraEye({
   side = null, marks = [],
 } = {}) {
   const reach = bandReach({ peaks, lensCutoffNm, uvLens });
-  // A person's own eye (`side`) is drawn as it is: a right eye has its optic disc on the right as you face it
-  // (`sx` puts the temple side at -x, the half that stays when cut open). A left eye is built the same way and
-  // then mirrored, with its astigmatism axis mirrored first so it ends up where it was measured.
+  // The eye is built with its temple side at +x and then mirrored, so it is a right eye (its optic disc on the
+  // right as you face it), like the view, which shows the right eye. A person's own eye (`side`) is built with
+  // its temple at -x instead (`sx`), so its temple side is the half that stays when cut open: a right eye is
+  // then left as built, a left eye mirrored. Mirroring flips the astigmatism axis, so it is flipped first to
+  // end up where it was measured.
   const sx = side ? -1 : 1;
-  if (side === 'left') axisDeg = 180 - axisDeg;
+  const mirrored = side !== 'right';
+  if (mirrored) axisDeg = 180 - axisDeg;
   const group = new THREE.Group();
   const scale = eyeSizeMm / (2 * R);
   // A tiny eye (a spider's, 2 mm) is drawn `drawZoom` times larger than life, so it can be seen and cut open.
@@ -604,9 +607,9 @@ export function buildCameraEye({
     ...Object.entries(rayTails).map(([part, position]) => ({ part, position, side: 'left' })),
   ].filter(a => (a.part !== 'blindSpot' || wiringInFront) && (a.part !== 'tapetum' || hasTapetum) &&
     (a.part !== 'pecten' || pectenLabelAt));
-  if (side === 'left') {
+  if (mirrored) {
     group.scale.x *= -1;
     for (const a of anchors) a.side = a.side === 'left' ? 'right' : 'left';
   }
-  return { group, anchors, radius: R * drawn, scale: drawn, mirrored: side === 'left' };
+  return { group, anchors, radius: R * drawn, scale: drawn, mirrored };
 }
