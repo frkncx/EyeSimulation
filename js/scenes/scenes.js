@@ -1,4 +1,4 @@
-// The seven built-in scenes for "How it sees", painted with plain canvas shapes.
+// The six built-in scenes for "How it sees", painted with plain canvas shapes.
 //
 // Each scene is a few layers at different distances, far to near, so focus can blur some and not others.
 // Layers draw in a 640×400 box (the caller scales it). `glow` draws light sources (street lamps, windows):
@@ -185,74 +185,6 @@ const forest = {
       stem(ctx, 420, 0, 520, 140, 5, '#5a4330');
       const rand = seeded(3);
       for (let i = 0; i < 14; i++) blob(ctx, 500 + rand() * 40, 120 + rand() * 40, 8, 8, '#c0182a');
-    } },
-  ],
-};
-
-const beach = {
-  id: 'beach', label: 'Beach',
-  layers: [
-    { distanceM: Infinity, draw(ctx) {
-      ctx.fillStyle = vertical(ctx, 0, 200, ['#5aa8e6', '#cfe9fb']);
-      ctx.fillRect(0, 0, SCENE_W, 200);
-      blob(ctx, 500, 70, 26, 26, '#fff8d8');
-      ctx.fillStyle = vertical(ctx, 200, 290, ['#1f6fa8', '#45aac4']);
-      ctx.fillRect(0, 200, SCENE_W, 90);
-      ctx.strokeStyle = 'rgba(255,255,255,0.6)';
-      ctx.lineWidth = 2;
-      const rand = seeded(17);
-      for (let i = 0; i < 30; i++) {
-        const x = rand() * SCENE_W;
-        const y = 210 + rand() * 70;
-        ctx.beginPath();
-        ctx.moveTo(x, y);
-        ctx.lineTo(x + 20 + rand() * 30, y);
-        ctx.stroke();
-      }
-    } },
-    { distanceM: 10, draw(ctx) {
-      ctx.fillStyle = vertical(ctx, 270, 400, ['#d9c08a', '#ecd8a6']);
-      ctx.beginPath();
-      ctx.moveTo(0, 290);
-      ctx.quadraticCurveTo(320, 262, 640, 285);
-      ctx.lineTo(640, 400);
-      ctx.lineTo(0, 400);
-      ctx.fill();
-      ctx.fillStyle = '#f4f0e6';
-      ctx.fillRect(176, 210, 6, 100);
-      for (let i = 0; i < 6; i++) {
-        ctx.fillStyle = i % 2 ? '#f4f0e6' : '#d8312c';
-        ctx.beginPath();
-        ctx.moveTo(179, 200);
-        ctx.arc(179, 230, 80, Math.PI + (i * Math.PI) / 6, Math.PI + ((i + 1) * Math.PI) / 6);
-        ctx.fill();
-      }
-      ctx.fillStyle = '#2a7fc4';
-      ctx.fillRect(210, 316, 90, 30);
-      ctx.fillStyle = '#f2d03a';
-      ctx.fillRect(210, 326, 90, 8);
-      blob(ctx, 380, 318, 14, 14, '#f08a1e');
-    } },
-    { distanceM: 0.8, draw(ctx) {
-      ctx.fillStyle = '#e2763a';
-      ctx.beginPath();
-      for (let i = 0; i < 10; i++) {
-        const a = (i / 10) * Math.PI * 2 - Math.PI / 2;
-        const r = i % 2 ? 18 : 46;
-        ctx.lineTo(520 + Math.cos(a) * r, 360 + Math.sin(a) * r);
-      }
-      ctx.fill();
-      blob(ctx, 90, 375, 34, 22, '#f2e6d8');
-      ctx.strokeStyle = '#d0b8a0';
-      ctx.lineWidth = 2;
-      for (let i = -3; i <= 3; i++) {
-        ctx.beginPath();
-        ctx.moveTo(90, 395);
-        ctx.lineTo(90 + i * 10, 356);
-        ctx.stroke();
-      }
-      const rand = seeded(29);
-      for (let i = 0; i < 12; i++) blob(ctx, 200 + rand() * 260, 370 + rand() * 30, 6 + rand() * 6, 4 + rand() * 4, '#9a8f84');
     } },
   ],
 };
@@ -827,7 +759,7 @@ const earth = {
     } }],
 };
 
-export const SCENES = [garden, forest, beach, underwater, street, fruit, earth];
+export const SCENES = [garden, forest, underwater, street, fruit, earth];
 
 /** A picture the user loaded, cropped to fill the view, treated as far away. */
 export function imageScene(image) {

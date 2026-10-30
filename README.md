@@ -56,7 +56,7 @@ js/
   ui/phoneMenus.js     phone layout: tab bar, eye type list, Compare sheet with setting chips
   ui/tips.js           hover/focus/tap tooltip for anything with a plain-word tip
   ui/glossary.js       safe text for HTML built from data
-  scenes/scenes.js     the seven scenes, painted in layers at different distances
+  scenes/scenes.js     the six scenes, painted in layers at different distances
   scenes/earthOutlines.js  coastlines for "Earth from orbit", traced from NASA Earth Observatory's Blue Marble
   scenes/paint.js      small painting helpers
   sight/sightPipeline.js  scene as the eye sees it: blur, light, colors, glare, blind spot
