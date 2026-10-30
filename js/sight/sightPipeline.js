@@ -169,6 +169,8 @@ export function sightParams(settings, light, inWater = false) {
     exposure: illum ** ADAPTATION * sens,
     glowGain: GLOW_LEVEL * illum ** -GLOW_POWER * sens,
     fineArcmin,
+    // The same at the animal's measured eye size.
+    ownFineArcmin: fineArcmin * settings.eyeSizeMm / (settings.acuityEyeMm ?? settings.eyeSizeMm),
     acuityArcmin: HUMAN_CPD / (settings.acuityCpd ?? HUMAN_CPD),
     rodBlur: ratio ? (ratio / HUMAN_RODS_PER_CONE) ** ROD_BLUR_POWER : 1,
     // 1 = no color left at all, as with no cones.
@@ -596,7 +598,10 @@ export function blurFor(distanceM, p) {
     const off = Math.abs(vergence(distanceM) - vergence(p.focusM));
     const defocus = Math.hypot(focusBlur(off, pupilMm), focusBlur(p.waterD ?? 0, pupilMm)) * shown;
     // Light spreading through the pupil (diffraction), about 2.3 arcminutes ÷ pupil width in mm.
-    const fine = Math.hypot(p.fineArcmin, DIFFRACTION_ARCMIN_MM / pupilMm);
+    // An eye smaller than the animal's own loses detail; that loss is drawn at the same gain as vision problems
+    // so it shows (gaps add as squares). The eye's own detail stays at true size.
+    const lost = p.chart ? 0 : Math.sqrt(Math.max(0, p.fineArcmin ** 2 - (p.ownFineArcmin ?? p.fineArcmin) ** 2)) * shown;
+    const fine = Math.hypot(p.fineArcmin, DIFFRACTION_ARCMIN_MM / pupilMm, lost);
     // In the dark, rods pool their signals: more rods, blurrier (a human at night: about 20/160).
     const night = NIGHT_BLUR_OLD_PX * p.night ** 2 * p.rodBlur * REF_ARCMIN_PER_PX;
     // A night reflector scatters light sideways a little.
