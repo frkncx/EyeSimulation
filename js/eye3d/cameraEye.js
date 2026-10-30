@@ -246,7 +246,7 @@ export function buildCameraEye({
   eyeSizeMm = 24, pupilMm = 8, pupilShape = 'round', focus = 1, retina = 'away', tapetum = 'off', irisColor = '#6b4a2e',
   refraction = 0, astigmatism = 'off', cylinderD = 1.5, axisDeg = 180, eyeShape = 'round', rods = null,
   peaks = null, lensCutoffNm = null, uvLens = 'none', rays = { uv: false, ir: false }, lensFocus = 'shape',
-  spots = [{ part: 'fovea' }], darkPupilMm, pupilRefEyeMm,
+  spots = [{ part: 'fovea' }], darkPupilMm, pupilRefEyeMm, blindSpot, pecten = null,
 } = {}) {
   const reach = bandReach({ peaks, lensCutoffNm, uvLens });
   const group = new THREE.Group();
@@ -402,21 +402,71 @@ export function buildCameraEye({
   group.add(muscle);
 
   const nerveMat = material('#e6d3a8');
-  const nerveDir = new THREE.Vector3(-Math.sin(THREE.MathUtils.degToRad(15)), 0, -Math.cos(THREE.MathUtils.degToRad(15)));
+  const deg = THREE.MathUtils.degToRad;
+  // A bird's optic disc sits where its blind spot data says (the field is mirrored on the retina: a blind spot
+  // out to the side lies toward the nose, one above lies low on the retina); others keep the human place.
+  const nerveDir = pecten && blindSpot
+    ? new THREE.Vector3(-Math.sin(deg(blindSpot.outDeg)), Math.sin(deg(blindSpot.downDeg)), -1).normalize()
+    : new THREE.Vector3(-Math.sin(deg(15)), 0, -Math.cos(deg(15)));
   const onRetina = backR - 0.95;
   /** A point `r` out from the middle of the back cup, toward `dir`. */
   const fromCenter = (dir, r) => dir.clone().normalize().multiplyScalar(r).add(center);
+  /** `p` moved along its line from the middle of the back cup to `r` from it. */
+  const toSphere = (p, r) => fromCenter(p.clone().sub(center), r);
   let nerveLabelAt;
+  let pectenLabelAt;
   if (wiringInFront) {
     // The wiring gathers into one cable that pierces the retina: the blind spot.
     const nerve = mesh('opticNerve', new THREE.CylinderGeometry(1.5, 1.6, 14, 48), nerveMat);
     nerve.position.copy(fromCenter(nerveDir, backR - 0.85 + 7));
     nerve.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), nerveDir);
     group.add(nerve);
-    const blindSpot = mesh('blindSpot', new THREE.CircleGeometry(1.0, 48), material('#f2d98a', { roughness: 0.8 }));
-    blindSpot.position.copy(fromCenter(nerveDir, onRetina));
-    blindSpot.lookAt(center);
-    group.add(blindSpot);
+    const discMat = material('#f2d98a', { roughness: 0.8 });
+    const disc = fromCenter(nerveDir, onRetina);
+    if (!pecten) {
+      const spot = mesh('blindSpot', new THREE.CircleGeometry(1.0, 48), discMat);
+      spot.position.copy(disc);
+      spot.lookAt(center);
+      group.add(spot);
+    } else {
+      // A bird's disc is as big as its blind spot, curved to lie on the retina. Directions on it: `inward` toward
+      // the middle of the eye, `along` its long side (up and down), `across` the other way.
+      const inward = center.clone().sub(disc).normalize();
+      const along = new THREE.Vector3(0, 1, 0).projectOnPlane(inward).normalize();
+      const across = new THREE.Vector3().crossVectors(inward, along);
+      const rx = onRetina * deg(blindSpot.wDeg / 2);
+      const ry = onRetina * deg(blindSpot.hDeg / 2);
+      const at = (a, l, up = 0) => disc.clone().addScaledVector(across, a).addScaledVector(along, l).addScaledVector(inward, up);
+      const discGeo = new THREE.CircleGeometry(1, 48);
+      const pos = discGeo.attributes.position;
+      for (let i = 0; i < pos.count; i++) {
+        const p = toSphere(at(pos.getX(i) * rx, pos.getY(i) * ry), onRetina);
+        pos.setXYZ(i, p.x, p.y, p.z);
+      }
+      discGeo.computeVertexNormals();
+      group.add(mesh('blindSpot', discGeo, discMat));
+
+      // The pecten: a dark, pleated comb of blood vessels standing on the disc, folded like a paper fan, its base
+      // longer than its top. Most birds' pleats are joined along the top by a bridge; owls' are not.
+      const height = pecten.heightMm / scale;
+      const n = 2 * pecten.folds;
+      const pts = [];
+      for (let i = 0; i <= n; i++) {
+        const s = i / n - 0.5;
+        const side = (i % 2 ? 1 : -1) * rx * 0.75;
+        pts.push(toSphere(at(side, s * 2 * ry * 0.9), onRetina - 0.05), at(side, s * 2 * ry * 0.9 * 0.7, height));
+      }
+      const geo = new THREE.BufferGeometry().setFromPoints(pts);
+      const index = [];
+      for (let i = 0; i < n; i++) index.push(2 * i, 2 * i + 2, 2 * i + 1, 2 * i + 1, 2 * i + 2, 2 * i + 3);
+      geo.setIndex(index);
+      geo.computeVertexNormals();
+      const pectenMat = material('#3a1e18', { roughness: 0.75 });
+      group.add(mesh('pecten', geo, pectenMat));
+      const topEnd = ry * 0.9 * 0.7;
+      if (pecten.bridge) group.add(cylinderBetween('pecten', at(0, -topEnd, height), at(0, topEnd, height), 0.15, pectenMat));
+      pectenLabelAt = at(0, ry * 0.5, height);
+    }
     nerveLabelAt = fromCenter(nerveDir, backR + 11);
   } else {
     // The wiring is already behind the retina, so thin bundles leave all over the back: no hole.
@@ -493,7 +543,9 @@ export function buildCameraEye({
     ...spots.map(spot => ({ part: spot.part, position: spotAt(spot.deg ?? 0), side: 'right', inner: true })),
     { part: 'wiring', position: v(0, 0, 0), side: 'right', inner: true, onCut: { sphere: wiringR, angleDeg: 215, z: cz } },
     { part: 'tapetum', position: fromCenter(v(-0.3, 0.35, -0.89), backR - 1), side: 'left', inner: true },
+    { part: 'pecten', position: pectenLabelAt, side: 'right', inner: true },
     ...Object.entries(rayTails).map(([part, position]) => ({ part, position, side: 'left' })),
-  ].filter(a => (a.part !== 'blindSpot' || wiringInFront) && (a.part !== 'tapetum' || hasTapetum));
+  ].filter(a => (a.part !== 'blindSpot' || wiringInFront) && (a.part !== 'tapetum' || hasTapetum) &&
+    (a.part !== 'pecten' || pectenLabelAt));
   return { group, anchors, radius: R * scale, scale };
 }
