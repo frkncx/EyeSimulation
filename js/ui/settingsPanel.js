@@ -1,6 +1,7 @@
 // The settings panel: big buttons and sliders built from data, showing only what fits the eye.
 import { escapeHtml } from './glossary.js';
 import { REFRACTION_MAX_D, facetAngle } from '../model/optics.js';
+import { MEASURED } from '../model/constants.js';
 
 /**
  * Focus slider 0..1 is spread evenly in focusing power: 0 = `nearM` (the nearest thing in the scene; 10 cm, the
@@ -69,11 +70,11 @@ export function rangeFor(setting, eye, settings) {
 
 const strengthText = v => (v < 0.34 ? 'Mild' : v < 0.67 ? 'Moderate' : 'Severe');
 
-// The eye's focal length is about 0.7 of its length (17 mm in a 24 mm human eye).
-const fNumber = (pupilMm, eyeSizeMm) => (0.7 * eyeSizeMm) / pupilMm;
+// The eye's focal length is a share of its length: 0.7 for a human (17 mm in a 24 mm eye), or the animal's own.
+const fNumber = (pupilMm, settings) => ((settings.focalShare ?? MEASURED.FOCAL_SHARE) * settings.eyeSizeMm) / pupilMm;
 
 function valueText(setting, value, settings, nearM) {
-  if (setting.id === 'pupilMm') return `${value} mm · f/${fNumber(value, settings.eyeSizeMm).toFixed(1)}`;
+  if (setting.id === 'pupilMm') return `${value} mm · f/${fNumber(value, settings).toFixed(1)}`;
   if (setting.id === 'focus') return focusText(value, nearM);
   if (setting.id === 'facets') return `${value.toLocaleString('en-US')} · ${(facetAngle(value) * 180 / Math.PI).toFixed(1)}° apart`;
   if (setting.id === 'rods') return rodsText(value);

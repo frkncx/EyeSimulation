@@ -49,6 +49,10 @@ export const MEASURED = {
   // underwater n_outside goes from air's 1 to water's, so it loses (WATER_INDEX − 1) ÷ radius: about 43 D for a
   // human 7.7 mm cornea (Gullstrand schematic eye), nearly all its power.
   WATER_INDEX: 1.333,
+  // The eye's focal length (its posterior nodal distance) as a share of its length: 0.7 for a human (about
+  // 16.7 mm in a 24 mm eye, Gullstrand schematic eye). Used for every eye without its own measured share
+  // (focalShare in its defaults, with the source in its Pupil tip).
+  FOCAL_SHARE: 0.7,
 };
 
 export const TUNING = {
@@ -62,9 +66,8 @@ export const TUNING = {
   // The pupil size brightness, grain and infrared blur are measured against: 4 mm (a human's in daylight).
   REF_PUPIL_MM: 4,
   // ...in a 24 mm eye (a human's). How bright the image on the retina is depends on the pupil compared with the
-  // eye's focal length, (pupil ÷ focal length)² (Hughes 1977; Land 1981), and the focal length is taken as the
-  // same share of every eye's size (0.7, as for the f-number on the Pupil slider), so a pupil counts relative to
-  // its eye's size.
+  // eye's focal length, (pupil ÷ focal length)² (Hughes 1977; Land 1981), the same focal length as for the
+  // f-number on the Pupil slider (FOCAL_SHARE of the eye's size, or the animal's own measured share).
   REF_EYE_MM: 24,
   // Brightness grows a little slower than pupil area.
   SENS_POWER: 0.6,

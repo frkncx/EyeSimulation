@@ -20,7 +20,7 @@ import { MEASURED, TUNING } from '../model/constants.js';
 import { SCENE_W, SCENE_H } from '../scenes/scenes.js';
 
 // Every number below is in js/model/constants.js, with what it does and where it comes from.
-const { AMBLYOPIA_BANDS, HUMAN_CPD, CHART_M, DIFFRACTION_ARCMIN_MM, SUPERPOSITION_GAIN, WATER_INDEX } = MEASURED;
+const { AMBLYOPIA_BANDS, HUMAN_CPD, CHART_M, DIFFRACTION_ARCMIN_MM, SUPERPOSITION_GAIN, WATER_INDEX, FOCAL_SHARE } = MEASURED;
 const {
   FIELD_DEG, LIGHT_DECADES, REF_PUPIL_MM, REF_EYE_MM, SENS_POWER, TAPETUM_GAIN, ADAPTATION, GLOW_LEVEL, GLOW_POWER, SHOULDER,
   HUMAN_RODS_PER_CONE, ROD_TAKEOVER, CONE_DAY, ROD_GAIN_POWER, ROD_BLUR_POWER, CONE_FADE_PER_DECADE,
@@ -127,9 +127,9 @@ export function sightParams(settings, light, inWater = false, nearM) {
   // default) and night reflector let in, so at its defaults every eye's daylight view is normally exposed.
   // A pupil set wider than that is brighter and glarier, like after dilating eye drops; narrower is dimmer.
   // As the light falls the adaptation fades, and the widest pupil, rods and reflector set the brightness.
-  // The image's brightness goes with the pupil's area compared with the eye's size (its f-number), not the area
+  // The image's brightness goes with the pupil's area compared with the eye's focal length (its f-number), not the area
   // itself: a small eye with the same pupil makes a brighter image.
-  const forEye = (REF_EYE_MM / settings.eyeSizeMm) ** 2;
+  const forEye = ((FOCAL_SHARE * REF_EYE_MM) / ((settings.focalShare ?? FOCAL_SHARE) * settings.eyeSizeMm)) ** 2;
   const daySensAt = pupilMm => {
     const d = pupilSizeMm({ ...settings, pupilMm }, 1);
     return ((d.w * d.h * forEye) / REF_PUPIL_MM ** 2) ** SENS_POWER * tapetumGain;
