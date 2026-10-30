@@ -40,13 +40,24 @@ const REF_ARCMIN_PER_PX = 60 * FIELD_DEG / VIEW_W; // 5.625
 
 const FIELD_H_DEG = FIELD_DEG * VIEW_H / VIEW_W;
 
-/** The blind spot as fractions of the view at 1× zoom: center x, y and radii rx, ry. */
-const blindSpotFor = ({ outDeg, downDeg, wDeg, hDeg } = HUMAN_BLIND_SPOT) => ({
-  x: 0.5 + outDeg / FIELD_DEG,
-  y: 0.5 + downDeg / FIELD_H_DEG,
-  rx: wDeg / 2 / FIELD_DEG,
-  ry: hDeg / 2 / FIELD_H_DEG,
-});
+/**
+ * The blind spot as fractions of the view at 1× zoom: center x, y and radii rx, ry. With both eyes (`both`, the
+ * animal's binocular field), the other eye also sees everything up to half their shared field past straight
+ * ahead, toward this eye's side (the view's middle looks `lookDeg` that way); only the part of the spot beyond
+ * that stays blind, from `from` on. Null when the other eye sees all of it.
+ */
+const blindSpotFor = ({ outDeg, downDeg, wDeg, hDeg } = HUMAN_BLIND_SPOT, both) => {
+  const s = {
+    x: 0.5 + outDeg / FIELD_DEG,
+    y: 0.5 + downDeg / FIELD_H_DEG,
+    rx: wDeg / 2 / FIELD_DEG,
+    ry: hDeg / 2 / FIELD_H_DEG,
+  };
+  if (!both) return s;
+  const from = 0.5 + (both.widthDeg / 2 - both.lookDeg) / FIELD_DEG;
+  if (from >= s.x + s.rx) return null;
+  return from > s.x - s.rx ? { ...s, from } : s;
+};
 
 /**
  * The part of the eye's 60° view that is shown: zoomed in `zoom` times on the point x, y (fractions of the whole
@@ -70,6 +81,7 @@ export function blindSpotInView(s, v = FULL_VIEW) {
   if (!s) return null;
   const [x, y] = shownAt(v, s.x, s.y);
   const z = { x, y, rx: s.rx * v.zoom, ry: s.ry * v.zoom };
+  if (s.from != null) z.from = shownAt(v, s.from, 0)[0];
   return z.x + z.rx < 0 || z.x - z.rx > 1 || z.y + z.ry < 0 || z.y - z.ry > 1 ? null : z;
 }
 
@@ -192,7 +204,8 @@ export function sightParams(settings, light, inWater = false, nearM) {
     coneNight: nightFor(pupilSens) + CONE_NIGHT_PER_DECADE * coneLack,
     grain: grain < GRAIN_MIN ? 0 : grain,
     tube: settings.eyeShape === 'tube',
-    blindSpot: settings.retina === 'away' ? blindSpotFor(settings.blindSpot) : null,
+    blindSpot: settings.retina === 'away'
+      ? blindSpotFor(settings.blindSpot, settings.eyes === 'both' ? settings.binocular : null) : null,
     uv,
     ir,
     oneSensor: settings.peaks?.length === 1,
@@ -755,8 +768,14 @@ function gap(ctx, s) {
   g.addColorStop(1, 'rgba(0,0,0,0)');
   sctx.fillStyle = g;
   sctx.fillRect(-1, -1, 2, 2);
-  ctx.drawImage(SPREAD, x0, y0);
   ctx.save();
+  // With both eyes, the part the other eye sees stays as it is.
+  if (s.from != null) {
+    ctx.beginPath();
+    ctx.rect(s.from * W, 0, W, H);
+    ctx.clip();
+  }
+  ctx.drawImage(SPREAD, x0, y0);
   ctx.translate(x0, y0);
   // The dashed line keeps the size it had on the 640-pixel view.
   const line = W / VIEW_W;
