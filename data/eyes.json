@@ -250,6 +250,15 @@
         "colors": "Sensors at 350, 450 and 525 nm (Höglund et al. 1973)."
       },
       "look": { "eye": "#2e2620" } },
+    { "id": "ant", "label": "Ant", "type": "compound",
+      "tip": "A desert ant forager (Cataglyphis bicolor): about 1,200 facets in each eye. It sees ultraviolet and green, and finds its way home by the pattern of polarized light in the sky.",
+      "defaults": { "compoundKind": "apposition", "facets": 1200, "facetEyeMm": 0.8, "colors": "2", "peaks": [350, 510], "lensCutoffNm": null, "uvLens": "none", "coldBlooded": true },
+      "tips": {
+        "facets": "The largest foragers have up to 1,200; small nest workers about 600 (Menzel & Wehner 1970).",
+        "facetEyeMm": "Estimated from the ant's head width (1.5–3.2 mm) and eye proportions. No measurement found.",
+        "colors": "Sensors at 350 and 510 nm (Mote & Wehner 1980)."
+      },
+      "look": { "eye": "#3a302a" } },
     { "id": "scallop", "label": "Scallop", "type": "mirror",
       "tip": "A bay scallop. It has up to about 200 eyes, each under a millimeter, along the edge of its shell.",
       "defaults": { "peaks": [490], "lensCutoffNm": null, "uvLens": "none", "coldBlooded": true } },
