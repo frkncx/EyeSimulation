@@ -246,7 +246,7 @@ export function buildCameraEye({
   eyeSizeMm = 24, pupilMm = 8, pupilShape = 'round', focus = 1, retina = 'away', tapetum = 'off', irisColor = '#6b4a2e',
   refraction = 0, astigmatism = 'off', cylinderD = 1.5, axisDeg = 180, eyeShape = 'round', rods = null,
   peaks = null, lensCutoffNm = null, uvLens = 'none', rays = { uv: false, ir: false }, lensFocus = 'shape',
-  spots = [{ part: 'fovea' }], darkPupilMm, pupilRefEyeMm, blindSpot, pecten = null, drawZoom = 1,
+  spots = [{ part: 'fovea' }], darkPupilMm, pupilRefEyeMm, blindSpot, pecten = null, drawZoom = 1, pitLens = false,
 } = {}) {
   const reach = bandReach({ peaks, lensCutoffNm, uvLens });
   const group = new THREE.Group();
@@ -367,10 +367,15 @@ export function buildCameraEye({
   const lensRadius = slide ? ballR : (tube ? TUBE.lens : 4.5) - 0.35 * near;
   const front = slide ? ballR : (1.6 + 0.55 * near) * depth;
   const back = slide ? ballR : (2.1 + 0.9 * near) * depth;
+  // A jumping spider (`pitLens`) has no lens behind the opening: its second lens is a small pit at the back of
+  // the tube, just in front of the retina, that spreads the image out like a telephoto lens (Williams & McIntyre 1980).
+  const pitR = 1.8;
+  const pitZ = cz - (backR - 0.85) + 1.4;
+  const lensShape = pitLens ? { r: pitR, z: pitZ, front: 0.35, back: 0.35 } : { r: lensRadius, z: lensZ, front, back };
   const lens = [];
   for (let i = 0; i <= 48; i++) {
     const a = (i / 48) * Math.PI;
-    lens.push([lensRadius * Math.sin(a), lensZ + (a < Math.PI / 2 ? front : back) * Math.cos(a)]);
+    lens.push([lensShape.r * Math.sin(a), lensShape.z + (a < Math.PI / 2 ? lensShape.front : lensShape.back) * Math.cos(a)]);
   }
   // A UV-blocking lens is faintly yellow; one that lets UV through is clear.
   const lensTinted = uvLens === 'on' && !reach.uv;
@@ -379,16 +384,18 @@ export function buildCameraEye({
   })));
 
   // Vitreous gel: fills the eye from just behind the lens and focus muscle back to the retina.
-  // Profile: up the inside of the wall, in toward the lens, then along the back of the lens to the axis.
+  // Profile: up the inside of the wall, in toward the lens, then along the back of the lens to the axis
+  // (with the lens at the back, straight across to the axis just behind the opening).
   const gelR = backR - 1.15;
-  const gelFrontZ = lensZ - 1.8;
+  const gelFrontZ = pitLens ? irisZ - 0.6 : lensZ - 1.8;
   const lensBack = a => [lensRadius * Math.sin(a) * 1.02, lensZ + (back + 0.1) * Math.cos(a)];
   const gelWall = tube
     ? [...arc(gelR, 0, Math.PI / 2, 48, cz), [tubeWall(gelFrontZ) - 0.7, gelFrontZ]]
     : arc(gelR, 0, Math.acos(-gelFrontZ / gelR), 48);
   const gel = [
     ...gelWall,
-    ...Array.from({ length: 25 }, (_, i) => lensBack(Math.PI - Math.asin(0.95) + (Math.asin(0.95) * i) / 24)),
+    ...(pitLens ? [[0, gelFrontZ]]
+      : Array.from({ length: 25 }, (_, i) => lensBack(Math.PI - Math.asin(0.95) + (Math.asin(0.95) * i) / 24))),
   ];
   const gelMesh = mesh('vitreous', lathe(gel), material('#bfe3ef', {
     transparent: true, opacity: 0.12, roughness: 0.1, depthWrite: false,
@@ -508,7 +515,8 @@ export function buildCameraEye({
   // Light rays through the pupil, when their button is on: violet UV ones stop at a UV-blocking lens, or
   // reach the retina; red IR ones always reach it. Rays no sensor catches are drawn faint.
   const rayStartZ = corneaCenter + corneaR + 6;
-  const lensFrontZ = lensZ + front + 0.15;
+  // Rays bend where the focusing starts: at the lens, or for a spider at its front lens, just behind the opening.
+  const lensFrontZ = pitLens ? irisZ - 0.2 : lensZ + front + 0.15;
   const ray = (part, angleDeg, color, throughLens, faint) => {
     const a = THREE.MathUtils.degToRad(angleDeg);
     const x = pupilRx * 0.55 * Math.cos(a);
@@ -534,7 +542,7 @@ export function buildCameraEye({
     { part: 'pupil', position: v(0, 0.8, irisZ + 0.1), side: 'right' },
     { part: 'sclera', position: v(0, backR, cz - 3), side: 'right' },
     { part: 'opticNerve', position: nerveLabelAt, side: 'left' },
-    { part: 'lens', position: v(0, 2.2, lensZ), side: 'right', inner: true },
+    { part: 'lens', position: v(0, pitLens ? pitR * 0.7 : 2.2, pitLens ? pitZ : lensZ), side: 'right', inner: true },
     // These two follow the cut edge, where their cross-section shows.
     { part: 'focusMuscle', position: v(0, muscleR, restZ), side: 'left', inner: true, onCut: { ring: muscleR, z: restZ } },
     { part: 'choroid', position: v(0, 8.6, -7.6), side: 'left', inner: true, onCut: { sphere: backR - 0.6, angleDeg: tube ? 120 : 135, z: cz } },

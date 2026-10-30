@@ -232,7 +232,7 @@
       "look": { "iris": "#7a4a20" } },
     { "id": "jumpingSpider", "label": "Jumping spider", "type": "camera",
       "tip": "One of the two big front eyes of Portia, a jumping spider. Its other six eyes are smaller and watch for movement.",
-      "defaults": { "acuityCpd": 12.5, "eyeSizeMm": 2, "eyeShape": "tube", "retinaMoves": true, "drawZoom": 8, "retina": "toward", "focus": 1, "pupilShape": "round", "pupilMm": 0.8, "darkPupilMm": 0.8, "tapetum": "off",
+      "defaults": { "acuityCpd": 12.5, "eyeSizeMm": 2, "eyeShape": "tube", "retinaMoves": true, "drawZoom": 8, "pitLens": true, "retina": "toward", "focus": 1, "pupilShape": "round", "pupilMm": 0.8, "darkPupilMm": 0.8, "tapetum": "off",
         "colors": "2", "colorblind": "normal", "colorblindStrength": 0.5,
         "refraction": 0, "astigmatism": "off", "cylinderD": 1.5, "axisDeg": 180, "amblyopia": "off", "amblyopiaStrength": 0.5,
         "peaks": [370, 532], "lensCutoffNm": null, "uvLens": "none", "coldBlooded": true },
@@ -245,7 +245,7 @@
       },
       "parts": {
         "iris": { "label": "pigment ring", "tip": "Dark pigment around the lens. A spider has no iris, so the opening never changes." },
-        "lens": { "label": "pit lens", "tip": "A second lens: a pit that spreads the image out, like a telephoto lens, so the spider sees finer detail (Williams & McIntyre 1980). In a real spider it sits at the back of the tube, just in front of the retina." },
+        "lens": { "label": "pit lens", "tip": "A second lens: a pit that spreads the image out, like a telephoto lens, so the spider sees finer detail (Williams & McIntyre 1980). It sits at the back of the tube, just in front of the retina." },
         "cornea": { "label": "corneal lens", "tip": "The big front lens. It does most of the focusing. It can't change shape, but the eye is so small that near and far are both sharp." },
         "focusMuscle": { "label": "eye tube muscles", "tip": "Muscles on the eye tube that swing and twist the retina, to look around without moving the lens." },
         "fovea": { "label": "central strip", "tip": "The sharpest part: a narrow strip of tightly packed sensors in a boomerang-shaped retina, only a few degrees across. Light sensors as little as 2.4 arcminutes apart (Williams & McIntyre 1980)." },
