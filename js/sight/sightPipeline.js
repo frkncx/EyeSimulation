@@ -11,7 +11,7 @@
 // A compound eye blurs by its facets' acceptance angle instead (the same at every distance), skips the pupil,
 // glare and blind spot, and ends with a mosaic: one dot per facet.
 import { createCanvas, drawBlurred, supportsCanvasFilter, SRGB_TO_LINEAR, linearToSrgb } from './imageOps.js';
-import { defocusGapArcmin, dioptersGapArcmin, vergence, REFRACTION_MAX_D, facetAngle, facetAcceptance } from '../model/optics.js';
+import { dioptersGapArcmin, dioptersBlurArcmin, vergence, REFRACTION_MAX_D, facetAngle, facetAcceptance } from '../model/optics.js';
 import { colorStep, shiftColors, ROD_WEIGHTS } from './colorVision.js';
 import { bandReach, UV_FROM_NM, IR_FROM_NM } from '../model/spectrum.js';
 import { focusDistanceM, rodsPerCone } from '../ui/settingsPanel.js';
@@ -28,7 +28,7 @@ const {
   AMBLYOPIA_CONTRAST, MID_GREY, GRAIN_LEVEL, GRAIN_MIN, GRAIN_PX, GLARE_BLUR_OLD_PX, TAPETUM_GLARE, GLARE_VEIL,
   TUBE_EDGE_BLUR_OLD_PX, TUBE_EDGE, HUMAN_BLIND_SPOT, UV_FULL_NM, IR_FULL_NM, UV_COLOR, IR_COLOR, UV_STRENGTH,
   IR_STRENGTH, IR_BLUR_OLD_PX, IR_BLUR_MIN_PUPIL_MM, IR_NOISE_PX, COLD_BLOODED_NOISE, UV_BASE, IR_BASE, BLUISH_OVER,
-  MOSAIC_EDGE_OLD_PX, MOSAIC_EDGE_ALPHA, COLOR_FADE, FAR_FOCUS_D,
+  MOSAIC_EDGE_OLD_PX, MOSAIC_EDGE_ALPHA, COLOR_FADE, FAR_FOCUS_D, DEFOCUS_DISPLAY_GAIN,
 } = TUNING;
 
 // The view's shape, and the size the canvas starts at. It is drawn at whatever size it is shown, with every
@@ -582,29 +582,33 @@ export class SightRenderer {
  * are the finest gaps themselves.
  */
 export function blurFor(distanceM, p) {
-  // Finest gaps (focus, detail, amblyopia) are drawn as a blur SIGMA_PER_GAP wide per arcminute; the readout
-  // takes the gaps themselves, so the picture and the readout come from the same numbers.
+  // Finest gaps (detail, amblyopia) are drawn as a blur SIGMA_PER_GAP wide per arcminute; the readout takes the
+  // gaps themselves. Focus errors are drawn as their blur circle, and read as Smith's gap.
   const gap = p.chart ? 1 : SIGMA_PER_GAP;
+  const focusBlur = (diopters, pupilMm) => (p.chart ? dioptersGapArcmin : dioptersBlurArcmin)(diopters, pupilMm);
+  // Vision problems are drawn wider than true size so they show in the small view (the readout isn't).
+  const shown = p.chart ? 1 : DEFOCUS_DISPLAY_GAIN;
   // Amblyopia multiplies the eye's finest gap; as a gap added to it (gaps add as squares) that is this much.
-  const amblyopia = p.fineArcmin * Math.sqrt(p.amblyopiaFactor ** 2 - 1);
+  const amblyopia = p.fineArcmin * Math.sqrt(p.amblyopiaFactor ** 2 - 1) * shown;
   const axis = pupilMm => {
     // Focusing far beyond what the lens can make up for (tens of diopters underwater) blurs at every distance;
     // it adds to the ordinary focus error (simplified: as squares).
-    const defocus = Math.hypot(defocusGapArcmin(distanceM, p.focusM, pupilMm), dioptersGapArcmin(p.waterD ?? 0, pupilMm));
+    const off = Math.abs(vergence(distanceM) - vergence(p.focusM));
+    const defocus = Math.hypot(focusBlur(off, pupilMm), focusBlur(p.waterD ?? 0, pupilMm)) * shown;
     // Light spreading through the pupil (diffraction), about 2.3 arcminutes ÷ pupil width in mm.
     const fine = Math.hypot(p.fineArcmin, DIFFRACTION_ARCMIN_MM / pupilMm);
     // In the dark, rods pool their signals: more rods, blurrier (a human at night: about 20/160).
     const night = NIGHT_BLUR_OLD_PX * p.night ** 2 * p.rodBlur * REF_ARCMIN_PER_PX;
     // A night reflector scatters light sideways a little.
     const scatter = (p.tapetum ? TAPETUM_SCATTER_OLD_PX : 0) * REF_ARCMIN_PER_PX;
-    return Math.hypot(Math.hypot(defocus, fine, amblyopia) * gap, night, scatter);
+    return Math.hypot(defocus, Math.hypot(fine, amblyopia) * gap, night, scatter);
   };
   const bx = axis(p.pupilW);
   const by = axis(p.pupilH);
   const [ux, uy] = p.cylinderDir;
   // The pupil's width along the steep direction sets how much the astigmatism blurs.
   const a = p.cylinderD
-    ? dioptersGapArcmin(p.cylinderD, Math.hypot(p.pupilW * ux, p.pupilH * uy)) * gap
+    ? focusBlur(p.cylinderD, Math.hypot(p.pupilW * ux, p.pupilH * uy)) * shown
     : 0;
   // Add the two ovals (as spreads, like hypot does for circles), then find the long side and its angle.
   const xx = bx * bx + a * a * ux * ux;

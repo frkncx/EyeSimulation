@@ -105,6 +105,10 @@ export const TUNING = {
   // A gaussian blur this wide (its standard deviation) per arcminute of finest gap: at that width a grating of
   // that gap keeps about 5% of its contrast, near the limit of seeing it.
   SIGMA_PER_GAP: 0.78,
+  // The view shows a 60° scene on a panel that covers only a few degrees of the viewer's own sight, so true-size
+  // blur shrinks with it. Focus errors (Sphere, near and far, Cylinder, underwater) and amblyopia are drawn this
+  // many times wider so they show; the Sharpness readout stays at true size.
+  DEFOCUS_DISPLAY_GAIN: 4,
   // In the dark, rods pool their signals (a human at night: about 20/160): blur in pixels of the old 640-pixel view.
   NIGHT_BLUR_OLD_PX: 1.4,
   // A night reflector scatters light sideways a little: blur in pixels of the old view.

@@ -14,6 +14,15 @@ export function dioptersGapArcmin(diopters, pupilMm) {
   return SMITH_K * pupilMm * diopters;
 }
 
+/**
+ * How wide the picture's blur is (a gaussian's standard deviation, arcminutes) for a focusing error of `diopters`
+ * through a `pupilMm` pupil. Geometric optics: the blur circle is pupil (m) × diopters radians across, 3.44
+ * arcminutes per mm·D; an evenly lit disc spreads a quarter of its width either way. The readout uses the gap above.
+ */
+export function dioptersBlurArcmin(diopters, pupilMm) {
+  return (pupilMm / 1000) * diopters * (180 / Math.PI) * 60 / 4;
+}
+
 /** The same for an object at `objectM` when the eye focuses at `focusM`. */
 export function defocusGapArcmin(objectM, focusM, pupilMm) {
   return dioptersGapArcmin(Math.abs(vergence(objectM) - vergence(focusM)), pupilMm);
