@@ -100,7 +100,7 @@ function noiseFor(count) {
 }
 
 /** Everything the renderer needs, worked out once from the settings, the Light slider and whether the scene is underwater. */
-export function sightParams(settings, light, inWater = false) {
+export function sightParams(settings, light, inWater = false, nearM) {
   if (settings.facets != null) return compoundParams(settings, light);
   const tapetum = settings.tapetum === 'on';
   const tapetumGain = tapetum ? TAPETUM_GAIN : 1;
@@ -143,7 +143,7 @@ export function sightParams(settings, light, inWater = false) {
   const grain = GRAIN_LEVEL / Math.sqrt(photons);
   // Nearsighted (refraction < 0): the eye is too strong and can't relax enough for far things.
   // Farsighted (> 0): it is too weak, so it can't strain enough for near things.
-  const focusD = vergence(focusDistanceM(settings.focus));
+  const focusD = vergence(focusDistanceM(settings.focus, nearM));
   const errorD = (settings.refraction ?? 0) * REFRACTION_MAX_D;
   const eyeFocusD = Math.max(0, focusD - errorD);
   // Underwater the cornea loses nearly all its power (eyes with a curved cornea in air only; a whale's or an

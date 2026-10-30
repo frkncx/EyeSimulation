@@ -1,7 +1,7 @@
 // The right panel, "How it sees": scene buttons, the scene as the current eye sees it, the Light slider,
 // and below it the eye's own settings that belong with the scene (Focus), filled in by main.js.
 import { escapeHtml } from './glossary.js';
-import { SCENES, imageScene, drawPlain } from '../scenes/scenes.js';
+import { SCENES, imageScene, drawPlain, nearestM } from '../scenes/scenes.js';
 import { SightRenderer, sightParams, smallestDetail, blindSpotInView, fitView, FULL_VIEW, VIEW_W, VIEW_H } from '../sight/sightPipeline.js';
 
 const THUMB_W = 128;
@@ -188,7 +188,7 @@ export function createSight(root, { parts, defaultsOf, bigOver, onScene, onLight
       view.height = h;
     }
     const scene = s.sceneId === 'own' && s.ownImage ? imageScene(s.ownImage) : SCENES.find(x => x.id === s.sceneId);
-    renderer.render(view, scene, sightParams(s.settings, s.light, scene.inWater), shown);
+    renderer.render(view, scene, sightParams(s.settings, s.light, scene.inWater, nearestM(scene)), shown);
   }
   new ResizeObserver(redraw).observe(view);
 

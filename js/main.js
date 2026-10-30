@@ -12,6 +12,7 @@ import { installPhoneMenus } from './ui/phoneMenus.js';
 import { createSight } from './ui/sightPanel.js';
 import { createSpectrumBar } from './ui/spectrumBar.js';
 import { peaksForCount, dragRange, bandReach } from './model/spectrum.js';
+import { SCENES, nearestM } from './scenes/scenes.js';
 
 // 3D models that exist so far, by type `model`. The other types arrive one build step at a time.
 const MODELS = { camera: buildCameraEye, compound: buildCompoundEye, mirror: buildMirrorEye };
@@ -198,7 +199,6 @@ async function main() {
       }
       if (simulated) {
         settingsPanel.update(configFor(s), s.settings);
-        sightSettings.update(configFor(s), s.settings);
       } else {
         settingsPanel.clear('Arrives in a later step');
         sightSettings.clear('');
@@ -212,6 +212,8 @@ async function main() {
       spectrum.update(s.settings, { shown: simulated, locked: colorsLocked(s), lensTip: example.lensTip, note: s.spectrumNote });
     }
     if (!prev || ['typeId', 'exampleId', 'settings', 'sceneId', 'light', 'ownImage'].some(k => s[k] !== prev[k])) {
+      // The Focus slider's near end is the nearest thing in the scene shown.
+      if (simulated) sightSettings.update(configFor(s), s.settings, nearestM(SCENES.find(x => x.id === s.sceneId)));
       sight.update(s, simulated, type.label);
     }
     stage.setCut(s.cut);

@@ -2,14 +2,17 @@
 import { escapeHtml } from './glossary.js';
 import { REFRACTION_MAX_D, facetAngle } from '../model/optics.js';
 
-/** Focus slider 0..1 is spread evenly in focusing power: 0 = 10 cm, 1 = far away. */
-export function focusDistanceM(t) {
-  const diopters = 10 * (1 - t);
+/**
+ * Focus slider 0..1 is spread evenly in focusing power: 0 = `nearM` (the nearest thing in the scene; 10 cm, the
+ * human eye's near point, when nothing is near), 1 = far away.
+ */
+export function focusDistanceM(t, nearM = 0.1) {
+  const diopters = (1 - t) / nearM;
   return diopters < 0.05 ? Infinity : 1 / diopters;
 }
 
-function focusText(t) {
-  const m = focusDistanceM(t);
+function focusText(t, nearM) {
+  const m = focusDistanceM(t, nearM);
   if (m === Infinity) return 'Far away';
   return m < 1 ? `${Math.round(m * 100)} cm` : `${m.toFixed(1)} m`;
 }
@@ -69,9 +72,9 @@ const strengthText = v => (v < 0.34 ? 'Mild' : v < 0.67 ? 'Moderate' : 'Severe')
 // The eye's focal length is about 0.7 of its length (17 mm in a 24 mm human eye).
 const fNumber = (pupilMm, eyeSizeMm) => (0.7 * eyeSizeMm) / pupilMm;
 
-function valueText(setting, value, settings) {
+function valueText(setting, value, settings, nearM) {
   if (setting.id === 'pupilMm') return `${value} mm · f/${fNumber(value, settings.eyeSizeMm).toFixed(1)}`;
-  if (setting.id === 'focus') return focusText(value);
+  if (setting.id === 'focus') return focusText(value, nearM);
   if (setting.id === 'facets') return `${value.toLocaleString('en-US')} · ${(facetAngle(value) * 180 / Math.PI).toFixed(1)}° apart`;
   if (setting.id === 'rods') return rodsText(value);
   // Written like a glasses prescription: myopia is minus, hyperopia plus.
@@ -146,7 +149,8 @@ export function createSettings(root, data, onChange, place = 'settings') {
       root.innerHTML = message ? `<p class="placeholder">${escapeHtml(message)}</p>` : '';
       builtFor = null;
     },
-    update(eye, settings) {
+    /** `nearM`: the nearest thing in the scene shown, where the Focus slider's near end is. */
+    update(eye, settings, nearM) {
       if (builtFor !== eye.key) {
         build(eye);
         root.style.minHeight = '';
@@ -164,7 +168,7 @@ export function createSettings(root, data, onChange, place = 'settings') {
           input.min = min;
           input.max = max;
           if (document.activeElement !== input) input.value = value;
-          row.querySelector('output').textContent = valueText(s, value, settings);
+          row.querySelector('output').textContent = valueText(s, value, settings, nearM);
         } else {
           for (const btn of row.querySelectorAll('.choice')) btn.setAttribute('aria-pressed', String(btn.dataset.option === value));
         }

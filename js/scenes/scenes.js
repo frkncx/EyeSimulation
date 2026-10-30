@@ -761,6 +761,12 @@ const earth = {
 
 export const SCENES = [garden, forest, underwater, street, fruit, earth];
 
+/** The nearest thing in a scene, in meters (undefined when everything is far away, like a photo). */
+export function nearestM(scene) {
+  const near = Math.min(...(scene?.layers ?? []).map(l => l.distanceM));
+  return Number.isFinite(near) ? near : undefined;
+}
+
 /** A picture the user loaded, cropped to fill the view, treated as far away. */
 export function imageScene(image) {
   return {
