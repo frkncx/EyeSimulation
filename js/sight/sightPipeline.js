@@ -44,11 +44,12 @@ const FIELD_H_DEG = FIELD_DEG * VIEW_H / VIEW_W;
  * The blind spot as fractions of the view at 1× zoom: center x, y and radii rx, ry. With both eyes (`both`, the
  * animal's binocular field), the other eye also sees everything up to half their shared field past straight
  * ahead, toward this eye's side (the view's middle looks `lookDeg` that way); only the part of the spot beyond
- * that stays blind, from `from` on. Null when the other eye sees all of it.
+ * that stays blind, from `from` on. Null when the other eye sees all of it. A left eye (`side`) is the mirror
+ * image: its blind spot is out to the left.
  */
-const blindSpotFor = ({ outDeg, downDeg, wDeg, hDeg } = HUMAN_BLIND_SPOT, both) => {
+const blindSpotFor = ({ outDeg, downDeg, wDeg, hDeg } = HUMAN_BLIND_SPOT, both, side) => {
   const s = {
-    x: 0.5 + outDeg / FIELD_DEG,
+    x: 0.5 + (side === 'left' ? -outDeg : outDeg) / FIELD_DEG,
     y: 0.5 + downDeg / FIELD_H_DEG,
     rx: wDeg / 2 / FIELD_DEG,
     ry: hDeg / 2 / FIELD_H_DEG,
@@ -214,7 +215,7 @@ export function sightParams(settings, light, inWater = false, nearM) {
     grain: grain < GRAIN_MIN ? 0 : grain,
     tube: settings.eyeShape === 'tube',
     blindSpot: settings.retina === 'away'
-      ? blindSpotFor(settings.blindSpot, settings.eyes === 'both' ? settings.binocular : null) : null,
+      ? blindSpotFor(settings.blindSpot, settings.eyes === 'both' ? settings.binocular : null, settings.side) : null,
     uv,
     ir,
     oneSensor: settings.peaks?.length === 1,

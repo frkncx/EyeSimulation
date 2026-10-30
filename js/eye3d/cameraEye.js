@@ -247,8 +247,14 @@ export function buildCameraEye({
   refraction = 0, astigmatism = 'off', cylinderD = 1.5, axisDeg = 180, eyeShape = 'round', rods = null,
   peaks = null, lensCutoffNm = null, uvLens = 'none', rays = { uv: false, ir: false }, lensFocus = 'shape',
   spots = [{ part: 'fovea' }], darkPupilMm, pupilRefEyeMm, blindSpot, pecten = null, drawZoom = 1, pitLens = false,
+  side = null, marks = [],
 } = {}) {
   const reach = bandReach({ peaks, lensCutoffNm, uvLens });
+  // A person's own eye (`side`) is drawn as it is: a right eye has its optic disc on the right as you face it
+  // (`sx` puts the temple side at -x, the half that stays when cut open). A left eye is built the same way and
+  // then mirrored, with its astigmatism axis mirrored first so it ends up where it was measured.
+  const sx = side ? -1 : 1;
+  if (side === 'left') axisDeg = 180 - axisDeg;
   const group = new THREE.Group();
   const scale = eyeSizeMm / (2 * R);
   // A tiny eye (a spider's, 2 mm) is drawn `drawZoom` times larger than life, so it can be seen and cut open.
@@ -415,8 +421,8 @@ export function buildCameraEye({
   // A bird's optic disc sits where its blind spot data says (the field is mirrored on the retina: a blind spot
   // out to the side lies toward the nose, one above lies low on the retina); others keep the human place.
   const nerveDir = pecten && blindSpot
-    ? new THREE.Vector3(-Math.sin(deg(blindSpot.outDeg)), Math.sin(deg(blindSpot.downDeg)), -1).normalize()
-    : new THREE.Vector3(-Math.sin(deg(15)), 0, -Math.cos(deg(15)));
+    ? new THREE.Vector3(-sx * Math.sin(deg(blindSpot.outDeg)), Math.sin(deg(blindSpot.downDeg)), -1).normalize()
+    : new THREE.Vector3(-sx * Math.sin(deg(15)), 0, -Math.cos(deg(15)));
   const onRetina = backR - 0.95;
   /** A point `r` out from the middle of the back cup, toward `dir`. */
   const fromCenter = (dir, r) => dir.clone().normalize().multiplyScalar(r).add(center);
@@ -502,13 +508,53 @@ export function buildCameraEye({
   // The sharpest spots on the retina (`spots`): usually one fovea in the middle. `deg` moves one sideways along
   // the middle line, positive toward the temple (the optic disc is on the nose side), and `r` sets its size.
   // An eagle has a second, shallower fovea toward the temple.
-  const spotAt = deg => fromCenter(new THREE.Vector3(Math.sin(THREE.MathUtils.degToRad(deg)), 0,
+  const spotAt = deg => fromCenter(new THREE.Vector3(sx * Math.sin(THREE.MathUtils.degToRad(deg)), 0,
     -Math.cos(THREE.MathUtils.degToRad(deg))), onRetina);
   for (const spot of spots) {
     const m = mesh(spot.part, new THREE.CircleGeometry(spot.r ?? 0.6, 48), material('#8a2a1e'));
     m.position.copy(spotAt(spot.deg ?? 0));
     m.lookAt(center);
     group.add(m);
+  }
+
+  // Marks on a person's own retina (`marks`): each lies `eccDeg` from the middle of the back of the eye, `clockDeg`
+  // around it (0 toward the temple, 90 up). A band (lattice) runs around the eye, a spot (a hole) is round, and a
+  // ring is a circle of small spots around its middle (laser scars).
+  const markAt = (eccDeg, clockDeg) => {
+    const e = deg(eccDeg);
+    const c = deg(clockDeg);
+    return {
+      dir: new THREE.Vector3(sx * Math.sin(e) * Math.cos(c), Math.sin(e) * Math.sin(c), -Math.cos(e)),
+      around: new THREE.Vector3(-sx * Math.sin(c), Math.cos(c), 0), // along the circle, at this ecc
+      out: new THREE.Vector3(sx * Math.cos(e) * Math.cos(c), Math.cos(e) * Math.sin(c), Math.sin(e)), // away from the middle
+    };
+  };
+  const onMark = onRetina - 0.03;
+  /** An oval patch on the retina around `at`, `a` radians along the circle and `b` away from the middle. */
+  const patch = (part, at, a, b, color) => {
+    const points = [fromCenter(at.dir, onMark)];
+    for (let i = 0; i <= 32; i++) {
+      const t = (i / 32) * Math.PI * 2;
+      points.push(fromCenter(at.dir.clone().addScaledVector(at.around, a * Math.cos(t)).addScaledVector(at.out, b * Math.sin(t)), onMark));
+    }
+    const geo = new THREE.BufferGeometry().setFromPoints(points);
+    geo.setIndex(Array.from({ length: 32 }, (_, i) => [0, i + 1, i + 2]).flat());
+    geo.computeVertexNormals();
+    group.add(mesh(part, geo, material(color, { side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2 })));
+  };
+  const markLabels = [];
+  for (const m of marks) {
+    const at = markAt(m.eccDeg, m.clockDeg);
+    if (m.shape === 'band') patch(m.part, at, deg(m.lengthDeg / 2), deg(m.widthDeg / 2), m.color ?? '#d9d2bf');
+    else if (m.shape === 'ring') {
+      for (let i = 0; i < m.dots; i++) {
+        const t = (i / m.dots) * Math.PI * 2;
+        const dot = markAt(m.eccDeg + m.ringDeg * Math.sin(t), m.clockDeg + (m.ringDeg * Math.cos(t)) / Math.sin(deg(m.eccDeg)));
+        patch(m.part, dot, deg(m.dotDeg / 2), deg(m.dotDeg / 2), m.color ?? '#4a3426');
+      }
+    } else patch(m.part, at, deg(m.sizeDeg / 2), deg(m.sizeDeg / 2), m.color ?? '#6e1610');
+    const labelAt = m.shape === 'ring' ? markAt(m.eccDeg - m.ringDeg, m.clockDeg) : at;
+    markLabels.push({ part: m.part, position: fromCenter(labelAt.dir, onMark), side: 'left', inner: true });
   }
 
   const v = (x, y, z) => new THREE.Vector3(x, y, z);
@@ -554,8 +600,13 @@ export function buildCameraEye({
     { part: 'wiring', position: v(0, 0, 0), side: 'right', inner: true, onCut: { sphere: wiringR, angleDeg: 215, z: cz } },
     { part: 'tapetum', position: fromCenter(v(-0.3, 0.35, -0.89), backR - 1), side: 'left', inner: true },
     { part: 'pecten', position: pectenLabelAt, side: 'right', inner: true },
+    ...markLabels,
     ...Object.entries(rayTails).map(([part, position]) => ({ part, position, side: 'left' })),
   ].filter(a => (a.part !== 'blindSpot' || wiringInFront) && (a.part !== 'tapetum' || hasTapetum) &&
     (a.part !== 'pecten' || pectenLabelAt));
-  return { group, anchors, radius: R * drawn, scale: drawn };
+  if (side === 'left') {
+    group.scale.x *= -1;
+    for (const a of anchors) a.side = a.side === 'left' ? 'right' : 'left';
+  }
+  return { group, anchors, radius: R * drawn, scale: drawn, mirrored: side === 'left' };
 }

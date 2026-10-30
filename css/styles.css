@@ -129,6 +129,10 @@ button { font: inherit; color: inherit; }
 .scene-button[aria-pressed="true"] span::before { content: "✓ "; }
 .sight-view { position: relative; background: var(--stage); border-radius: var(--radius); overflow: hidden; }
 .sight-view canvas { display: block; width: 100%; aspect-ratio: 16 / 10; }
+.sight-view canvas[hidden] { display: none; }
+/* A person's two eyes: left and right pictures side by side, each named at its bottom. */
+.sight-view--pair { display: flex; gap: 2px; }
+.sight-view--pair canvas { flex: 1 1 0; min-width: 0; }
 /* Enlarged: over the 3D eye's stage (placed by sightPanel.js), on a backdrop the size of the stage. */
 .sight-view--big { position: fixed; z-index: 6; box-shadow: 0 6px 24px rgb(0 0 0 / 0.45); }
 .sight-backdrop { position: fixed; z-index: 5; background: var(--stage); border-radius: var(--radius); }
@@ -153,6 +157,9 @@ button { font: inherit; color: inherit; }
 }
 .sight-tag[hidden] { display: none; }
 .sight-tag--blind { transform: translateX(-50%); }
+.sight-tag--eye { bottom: 6px; transform: translateX(-50%); cursor: default; }
+.sight-tag--eye[data-eye="left"] { left: 25%; }
+.sight-tag--eye[data-eye="right"] { left: 75%; }
 .sight-tag--made-up { top: 8px; left: 8px; border: 2px dashed var(--ink); }
 /* Short notes laid over the bottom of the view, so the tight panel doesn't grow. */
 .sight-notes {
@@ -206,6 +213,8 @@ button { font: inherit; color: inherit; }
 .ray-button[aria-pressed="true"] { border-color: currentColor; }
 .ray-button--uv[aria-pressed="true"] { color: #5a2cc0; }
 .ray-button--ir[aria-pressed="true"] { color: #b8231a; }
+.side-buttons { margin-left: 12px; }
+.side-buttons .ray-button { white-space: nowrap; }
 .eye-view canvas { display: block; cursor: grab; }
 .eye-view canvas:active { cursor: grabbing; }
 .eye-missing {

@@ -86,6 +86,14 @@ export class EyeStage {
     }
     this.eye = built;
     this.hovered = null;
+    // A mirrored eye (a person's left eye) is looked at from the other side and cut open from the other side, so
+    // the view is the mirror image of the right eye's.
+    const mirror = built.mirrored ? -1 : 1;
+    if (mirror !== (this.mirror ?? 1)) {
+      this.camera.position.x *= -1;
+      this.mirror = mirror;
+    }
+    this.clip.normal.set(-mirror, 0, 0);
     built.group.traverse(o => {
       if (!o.isMesh) return;
       o.material.clippingPlanes = [this.clip];
@@ -116,7 +124,8 @@ export class EyeStage {
     const scale = this.eye?.scale ?? 1;
     const r = (this.eye?.radius ?? 12) + 1.5 * scale;
     this.clip.constant = r * (1 - amount);
-    // Labels that sit on the cut edge move with it (the plane keeps x <= constant).
+    // Labels that sit on the cut edge move with it (the plane keeps x <= constant; mirrored, x >= -constant, and
+    // the mirrored eye's own x runs the other way, so its labels sit at the same x either way).
     // The plane is in world units; label positions are in the eye's own (unscaled) units.
     // A label waits until the cut shows a good slice of its part; a sliver would put it in the middle of the eye.
     const c = Math.max(0, this.clip.constant / scale - 0.05);

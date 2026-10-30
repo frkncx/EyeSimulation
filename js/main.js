@@ -53,15 +53,33 @@ function rayTips(s, rays) {
 
 const $ = sel => document.querySelector(sel);
 
+/**
+ * A person's own eyes, from personal/me.json: `base` is the example they start from, `eyes.right` and `eyes.left`
+ * what differs in each eye. The right eye's settings are the example's own; the left eye's are `pairDefaults`.
+ * Sharpness is measured against the base example's healthy eye (`normalDefaults`), so a person's own errors count.
+ */
+function personalExample({ base, eyes, hide = [], parts = {}, ...rest }, examples) {
+  const from = examples.find(e => e.id === base);
+  const eye = side => ({ ...structuredClone(from.defaults), ...eyes[side], side });
+  return {
+    ...structuredClone(from), ...rest, defaults: eye('right'), pairDefaults: eye('left'), normalDefaults: from.defaults,
+    hide: [...(from.hide ?? []), ...hide], parts: { ...from.parts, ...parts },
+  };
+}
+
 async function main() {
   const res = await fetch('data/eyes.json');
   if (!res.ok) throw new Error(`Could not load data/eyes.json (${res.status})`);
   const data = await res.json();
+  // Your own two eyes, only on your own computer: personal/me.json is never committed, so it never ships.
+  const local = ['localhost', '127.0.0.1'].includes(location.hostname);
+  const mine = local ? await fetch('personal/me.json').then(r => (r.ok ? r.json() : null)).catch(() => null) : null;
+  if (mine) data.examples.push(personalExample(mine, data.examples));
   const typeById = Object.fromEntries(data.types.map(t => [t.id, t]));
   const exampleById = Object.fromEntries(data.examples.map(e => [e.id, e]));
   // An example's measured acuity holds for its own eye size, rods and night reflector: remember them, so changing
   // any of them changes it.
-  for (const { defaults } of data.examples) {
+  for (const defaults of data.examples.flatMap(e => (e.pairDefaults ? [e.defaults, e.pairDefaults] : [e.defaults]))) {
     if (defaults.acuityCpd != null) {
       Object.assign(defaults, { acuityEyeMm: defaults.eyeSizeMm, acuityRods: defaults.rods, acuityTapetum: defaults.tapetum });
     }
@@ -73,10 +91,13 @@ async function main() {
   const settingById = Object.fromEntries(data.settings.map(s => [s.id, s]));
 
   const defaultsFor = id => ({ ...exampleById[id].defaults });
+  // A person's two eyes: the settings show one of them (`side`), the other waits in `other`.
+  const pairFor = id => (exampleById[id].pairDefaults ? { side: 'right', other: { ...exampleById[id].pairDefaults } } : null);
+  const ownDefaults = s => (s.pair?.side === 'left' ? exampleById[s.exampleId].pairDefaults : exampleById[s.exampleId].defaults);
   const configFor = s => eyeConfig(typeById[s.typeId], exampleById[s.exampleId]);
   const startType = typeById[data.defaultType];
   const store = createStore({
-    typeId: startType.id, exampleId: startType.defaultExample, settings: defaultsFor(startType.defaultExample),
+    typeId: startType.id, exampleId: startType.defaultExample, settings: defaultsFor(startType.defaultExample), pair: null,
     cut: 0, labels: true, sceneId: 'garden', light: 1, ownImage: null, spectrumNote: null, rays: { uv: false, ir: false },
   });
   const stage = new EyeStage($('#eyeView'), data.parts, $('#tooltip'));
@@ -96,7 +117,9 @@ async function main() {
       settings.peaks = peaksForCount(Number(value), s.settings.peaks, own.peaks);
       if (own.peaks?.length === Number(value)) settings.uvLens = own.uvLens;
     }
-    return { settings, spectrumNote: null };
+    // Both eyes look at the same place: Focus and the other settings under the view change both.
+    const pair = s.pair && settingById[key]?.panel === 'sight' ? { ...s.pair, other: { ...s.pair.other, [key]: value } } : s.pair;
+    return { settings, pair, spectrumNote: null };
   });
   const settingsPanel = createSettings($('#settings'), data, changeSetting);
 
@@ -106,10 +129,10 @@ async function main() {
    */
   const ownWay = setting => setting.panel === 'sight' || setting.section === 'Vision problems';
   const isCustom = s => {
-    const example = exampleById[s.exampleId];
+    const own = ownDefaults(s);
     return configFor(s).settings.some(id => !ownWay(settingById[id]) &&
-      shows(settingById[id], s.settings) && s.settings[id] !== example.defaults[id]) ||
-      String(s.settings.peaks) !== String(example.defaults.peaks) || s.settings.uvLens !== example.defaults.uvLens;
+      shows(settingById[id], s.settings) && s.settings[id] !== own[id]) ||
+      String(s.settings.peaks) !== String(own.peaks) || s.settings.uvLens !== own.uvLens;
   };
 
   const colorsLocked = s => configFor(s).allowed.colors?.length === 1;
@@ -126,7 +149,7 @@ async function main() {
 
   const sight = createSight($('#sight'), {
     parts: data.parts,
-    defaultsOf: id => exampleById[id].defaults,
+    defaultsOf: id => exampleById[id].normalDefaults ?? exampleById[id].defaults,
     bigOver: $('.eye-stage'),
     onScene: sceneId => store.set({ sceneId }),
     onLight: light => store.set({ light }),
@@ -143,6 +166,12 @@ async function main() {
     if (btn) store.set(s => ({ rays: { ...s.rays, [btn.dataset.ray]: !s.rays[btn.dataset.ray] } }));
   });
 
+  const sideButtons = $('#sideButtons');
+  sideButtons.addEventListener('click', e => {
+    const side = e.target.closest('[data-side]')?.dataset.side;
+    store.set(s => (s.pair && side && side !== s.pair.side ? { settings: s.pair.other, pair: { side, other: s.settings } } : {}));
+  });
+
   const buttons = $('#eyeButtons');
   buttons.innerHTML = data.types.map(t => `
     <button type="button" class="eye-button" data-type="${t.id}" aria-pressed="false" data-tip="${escapeHtml(t.hint)}">
@@ -152,17 +181,19 @@ async function main() {
     const btn = e.target.closest('[data-type]');
     if (!btn) return;
     const exampleId = typeById[btn.dataset.type].defaultExample;
-    store.set({ typeId: btn.dataset.type, exampleId, settings: defaultsFor(exampleId), spectrumNote: null });
+    store.set({ typeId: btn.dataset.type, exampleId, settings: defaultsFor(exampleId), pair: pairFor(exampleId), spectrumNote: null });
   });
   installPhoneMenus({ toggle: $('#eyeTypeToggle'), list: buttons, tabs: $('.phone-tabs'), spectrum: $('#spectrum'), settings: $('#settings') });
 
   const exampleSelect = $('#exampleSelect');
   exampleSelect.addEventListener('change', () => {
     const exampleId = exampleSelect.value;
-    if (exampleId !== CUSTOM) store.set({ exampleId, settings: defaultsFor(exampleId), spectrumNote: null });
+    if (exampleId !== CUSTOM) store.set({ exampleId, settings: defaultsFor(exampleId), pair: pairFor(exampleId), spectrumNote: null });
   });
 
-  $('#resetButton').addEventListener('click', () => store.set(s => ({ settings: defaultsFor(s.exampleId), sceneId: 'garden', light: 1, spectrumNote: null })));
+  $('#resetButton').addEventListener('click', () => store.set(s => ({
+    settings: defaultsFor(s.exampleId), pair: pairFor(s.exampleId), sceneId: 'garden', light: 1, spectrumNote: null,
+  })));
 
   const render = (s, prev) => {
     for (const btn of buttons.querySelectorAll('[data-type]')) {
@@ -188,6 +219,8 @@ async function main() {
       $('#eyeMissing').hidden = !!model;
       $('#eyeMissing').textContent = model ? '' : `The ${type.label.toLowerCase()} arrives in a later step`;
       rayButtons.hidden = !simulated;
+      sideButtons.hidden = !s.pair;
+      for (const btn of sideButtons.querySelectorAll('[data-side]')) btn.setAttribute('aria-pressed', String(btn.dataset.side === s.pair?.side));
       const tips = rayTips(s.settings, s.rays);
       for (const btn of rayButtons.querySelectorAll('[data-ray]')) {
         btn.setAttribute('aria-pressed', String(s.rays[btn.dataset.ray]));
@@ -218,7 +251,7 @@ async function main() {
     if (!prev || s.settings !== prev.settings || s.exampleId !== prev.exampleId || s.typeId !== prev.typeId || s.spectrumNote !== prev.spectrumNote) {
       spectrum.update(s.settings, { shown: simulated, locked: colorsLocked(s), lensTip: example.lensTip, note: s.spectrumNote });
     }
-    if (!prev || ['typeId', 'exampleId', 'settings', 'sceneId', 'light', 'ownImage'].some(k => s[k] !== prev[k])) {
+    if (!prev || ['typeId', 'exampleId', 'settings', 'pair', 'sceneId', 'light', 'ownImage'].some(k => s[k] !== prev[k])) {
       // The Focus slider's near end is the nearest thing in the scene shown.
       if (simulated) sightSettings.update(configFor(s), s.settings, nearestM(SCENES.find(x => x.id === s.sceneId)));
       sight.update(s, simulated, type.label);

@@ -37,6 +37,11 @@
             <button type="button" class="ray-button ray-button--uv" data-ray="uv" aria-pressed="false">UV</button>
             <button type="button" class="ray-button ray-button--ir" data-ray="ir" aria-pressed="false">IR</button>
           </div>
+          <!-- Only for a person's own two eyes: which one the 3D view and the settings show. -->
+          <div class="ray-buttons side-buttons" id="sideButtons" role="group" aria-label="Which eye" hidden>
+            <button type="button" class="ray-button" data-side="left" aria-pressed="false">Left eye</button>
+            <button type="button" class="ray-button" data-side="right" aria-pressed="false">Right eye</button>
+          </div>
           <p class="stage-hint"><span class="hint-wide">Drag to rotate · Scroll to zoom · Hover a part to learn what it does</span><span class="hint-phone">Drag to rotate · Pinch to zoom</span></p>
         </div>
         <p id="eyeNote" class="eye-note" hidden></p>

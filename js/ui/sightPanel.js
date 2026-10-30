@@ -64,6 +64,9 @@ export function createSight(root, { parts, defaultsOf, bigOver, onScene, onLight
     </div>
     <div class="sight-view">
       <canvas width="${VIEW_W}" height="${VIEW_H}" aria-label="The scene as this eye sees it"></canvas>
+      <canvas class="sight-second" width="${VIEW_W}" height="${VIEW_H}" aria-label="The scene as the right eye sees it" hidden></canvas>
+      <span class="sight-tag sight-tag--eye" data-eye="left" hidden>Left eye</span>
+      <span class="sight-tag sight-tag--eye" data-eye="right" hidden>Right eye</span>
       <span class="sight-tag sight-tag--blind" tabindex="0" data-tip="${escapeHtml(parts.blindSpot.tip)}">blind spot</span>
       <span class="sight-tag sight-tag--made-up" tabindex="0" data-tip="${escapeHtml(MADE_UP_TIP)}">False color</span>
       <div class="sight-tools">
@@ -105,6 +108,9 @@ export function createSight(root, { parts, defaultsOf, bigOver, onScene, onLight
   const fileInput = root.querySelector('input[type="file"]');
   const lightInput = root.querySelector('input[type="range"]');
   const view = root.querySelector('.sight-view canvas');
+  // With two eyes of one person (`s.pair`), the left eye is drawn in `view` and the right eye beside it.
+  const second = root.querySelector('.sight-second');
+  const eyeTags = root.querySelectorAll('.sight-tag--eye');
   const blindTag = root.querySelector('.sight-tag--blind');
   const madeUpTag = root.querySelector('.sight-tag--made-up');
   const missing = root.querySelector('.sight-missing');
@@ -146,8 +152,9 @@ export function createSight(root, { parts, defaultsOf, bigOver, onScene, onLight
     const r = bigOver.getBoundingClientRect();
     Object.assign(backdrop.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px` });
     const pad = 12;
-    const w = Math.min(r.width - 2 * pad, (r.height - 2 * pad) * VIEW_W / VIEW_H);
-    const h = w * VIEW_H / VIEW_W;
+    const across = current?.pair ? 2 : 1; // two eyes side by side make the view twice as wide
+    const w = Math.min(r.width - 2 * pad, (r.height - 2 * pad) * across * VIEW_W / VIEW_H);
+    const h = w * VIEW_H / (across * VIEW_W);
     Object.assign(viewBox.style, {
       left: `${r.left + (r.width - w) / 2}px`, top: `${r.top + (r.height - h) / 2}px`, width: `${w}px`,
     });
@@ -168,6 +175,7 @@ export function createSight(root, { parts, defaultsOf, bigOver, onScene, onLight
   window.addEventListener('resize', place);
 
   const renderer = new SightRenderer();
+  const secondRenderer = new SightRenderer();
   let pending = null;
   let thumbFor = null;
   let shown = FULL_VIEW; // the part of the view shown: zoom, and where it is centered
@@ -177,20 +185,26 @@ export function createSight(root, { parts, defaultsOf, bigOver, onScene, onLight
   const redraw = () => { if (current) pending ??= requestAnimationFrame(draw); };
 
   // The scene is drawn at the view's own size in screen pixels, not stretched from a smaller picture.
+  function drawOn(canvas, r, scene, settings, light) {
+    const w = Math.round(canvas.clientWidth * (window.devicePixelRatio || 1));
+    if (!w) return; // hidden (another tab on phones): drawn when it shows, as its size changes
+    const h = Math.round(w * VIEW_H / VIEW_W);
+    if (canvas.width !== w || canvas.height !== h) {
+      canvas.width = w;
+      canvas.height = h;
+    }
+    r.render(canvas, scene, sightParams(settings, light, scene.inWater, nearestM(scene)), shown);
+  }
   function draw() {
     pending = null;
     const s = current;
-    const w = Math.round(view.clientWidth * (window.devicePixelRatio || 1));
-    if (!w) return; // hidden (another tab on phones): drawn when it shows, as its size changes
-    const h = Math.round(w * VIEW_H / VIEW_W);
-    if (w > 0 && (view.width !== w || view.height !== h)) {
-      view.width = w;
-      view.height = h;
-    }
     const scene = s.sceneId === 'own' && s.ownImage ? imageScene(s.ownImage) : SCENES.find(x => x.id === s.sceneId);
-    renderer.render(view, scene, sightParams(s.settings, s.light, scene.inWater, nearestM(scene)), shown);
+    const [left, right] = eyesOf(s);
+    drawOn(view, renderer, scene, left, s.light);
+    if (right) drawOn(second, secondRenderer, scene, right, s.light);
   }
   new ResizeObserver(redraw).observe(view);
+  new ResizeObserver(redraw).observe(second);
 
   /** The blind spot's tag: under the spot, or above it when it reaches the bottom of the view; hidden when zoomed out of sight. */
   function placeBlindTag() {
@@ -213,31 +227,33 @@ export function createSight(root, { parts, defaultsOf, bigOver, onScene, onLight
     redraw();
   });
 
-  // Zoomed in, dragging moves the picture with the pointer.
+  // Zoomed in, dragging moves the picture with the pointer (both pictures, with two eyes).
   let dragFrom = null;
-  view.addEventListener('pointerdown', e => {
-    if (shown.zoom === 1) return;
-    dragFrom = { x: e.clientX, y: e.clientY, shown };
-    view.setPointerCapture(e.pointerId);
-    viewBox.classList.add('sight-view--dragging');
-  });
-  view.addEventListener('pointermove', e => {
-    if (!dragFrom) return;
-    const { zoom, x, y } = dragFrom.shown;
-    shown = fitView({
-      zoom,
-      x: x - (e.clientX - dragFrom.x) / (view.clientWidth * zoom),
-      y: y - (e.clientY - dragFrom.y) / (view.clientHeight * zoom),
+  for (const canvas of [view, second]) {
+    canvas.addEventListener('pointerdown', e => {
+      if (shown.zoom === 1) return;
+      dragFrom = { x: e.clientX, y: e.clientY, shown };
+      canvas.setPointerCapture(e.pointerId);
+      viewBox.classList.add('sight-view--dragging');
     });
-    placeBlindTag();
-    redraw();
-  });
-  const endDrag = () => {
-    dragFrom = null;
-    viewBox.classList.remove('sight-view--dragging');
-  };
-  view.addEventListener('pointerup', endDrag);
-  view.addEventListener('pointercancel', endDrag);
+    canvas.addEventListener('pointermove', e => {
+      if (!dragFrom) return;
+      const { zoom, x, y } = dragFrom.shown;
+      shown = fitView({
+        zoom,
+        x: x - (e.clientX - dragFrom.x) / (view.clientWidth * zoom),
+        y: y - (e.clientY - dragFrom.y) / (view.clientHeight * zoom),
+      });
+      placeBlindTag();
+      redraw();
+    });
+    const endDrag = () => {
+      dragFrom = null;
+      viewBox.classList.remove('sight-view--dragging');
+    };
+    canvas.addEventListener('pointerup', endDrag);
+    canvas.addEventListener('pointercancel', endDrag);
+  }
 
   return {
     /** Redraw for this state (`built` is false for eyes that aren't made yet). */
@@ -258,16 +274,29 @@ export function createSight(root, { parts, defaultsOf, bigOver, onScene, onLight
       sharpness.hidden = !built;
       if (!built) {
         blindSpot = null;
-        blindTag.hidden = madeUpTag.hidden = true;
+        blindTag.hidden = madeUpTag.hidden = second.hidden = true;
+        for (const tag of eyeTags) tag.hidden = true;
+        viewBox.classList.remove('sight-view--pair');
         viewNotes.innerHTML = '';
         return;
       }
       const inWater = SCENES.find(x => x.id === s.sceneId)?.inWater;
       const p = sightParams(s.settings, s.light, inWater);
       // A compound eye's finest detail comes straight from its facets; a camera eye's from its measured acuity.
-      const text = sharpnessText(smallestDetail(s.settings, s.light, defaultsOf(s.exampleId), inWater));
-      for (const dd of sharpness.querySelectorAll('[data-sharpness]')) dd.textContent = text[dd.dataset.sharpness];
-      blindSpot = p.blindSpot;
+      const textFor = settings => sharpnessText(smallestDetail(settings, s.light, defaultsOf(s.exampleId), inWater));
+      const [left, right] = eyesOf(s);
+      const texts = right ? { Left: textFor(left), Right: textFor(right) } : null;
+      const text = texts ? null : textFor(s.settings);
+      for (const dd of sharpness.querySelectorAll('[data-sharpness]')) {
+        const key = dd.dataset.sharpness;
+        dd.textContent = texts ? Object.entries(texts).map(([eye, t]) => `${eye} ${t[key]}`).join(' · ') : text[key];
+      }
+      // Two eyes: each picture is named, and the blind spots show on their own sides without a tag.
+      const pair = !!right;
+      second.hidden = !pair;
+      viewBox.classList.toggle('sight-view--pair', pair);
+      for (const tag of eyeTags) tag.hidden = !pair;
+      blindSpot = pair ? null : p.blindSpot;
       placeBlindTag();
       const shift = p.color?.kind === 'shift' ? p.color.channels : 0;
       // UV or infrared reaching the eye, in a scene that has them (photos don't; underwater has no infrared).
@@ -281,10 +310,18 @@ export function createSight(root, { parts, defaultsOf, bigOver, onScene, onLight
       if (p.ir > 0) notes.push(IR_NOISE_NOTE);
       if (p.ir > 0 && !photo && s.sceneId !== 'underwater') notes.push(IR_BLUR_NOTE);
       viewNotes.innerHTML = notes.map(t => `<span>${escapeHtml(t)}</span>`).join('');
+      const wasPair = !!current?.pair;
       current = s;
+      if (wasPair !== pair) place();
       pending ??= requestAnimationFrame(draw);
     },
   };
+}
+
+/** The eyes to draw, left to right: one eye alone, or a person's left and right eyes (`s.pair` holds the other). */
+function eyesOf(s) {
+  if (!s.pair) return [s.settings, null];
+  return s.pair.side === 'left' ? [s.settings, s.pair.other] : [s.pair.other, s.settings];
 }
 
 /** The loaded picture, cropped to fill the thumbnail. */
