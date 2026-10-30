@@ -629,8 +629,11 @@ function chartBlur(settings, light) {
 export function smallestDetail(settings, light, defaults) {
   const own = sightParams(settings, light);
   if (own.detailArcmin != null) return own.detailArcmin;
-  const extra = chartBlur(settings, light) ** 2 - chartBlur(defaults, 1) ** 2;
-  return Math.sqrt(Math.max(0, own.acuityArcmin ** 2 + extra));
+  const now = chartBlur(settings, light);
+  const base = chartBlur(defaults, 1);
+  const extra = now ** 2 - base ** 2;
+  if (extra < 0) return own.acuityArcmin * now / base;
+  return Math.sqrt(own.acuityArcmin ** 2 + extra);
 }
 
 /** No light sensors where the nerve leaves the eye: a gap in the picture. */
