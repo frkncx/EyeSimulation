@@ -185,7 +185,7 @@ export function createSight(root, { parts, defaultsOf, bigOver, onScene, onLight
       view.height = h;
     }
     const scene = s.sceneId === 'own' && s.ownImage ? imageScene(s.ownImage) : SCENES.find(x => x.id === s.sceneId);
-    renderer.render(view, scene, sightParams(s.settings, s.light), shown);
+    renderer.render(view, scene, sightParams(s.settings, s.light, scene.inWater), shown);
   }
   new ResizeObserver(redraw).observe(view);
 
@@ -259,9 +259,10 @@ export function createSight(root, { parts, defaultsOf, bigOver, onScene, onLight
         viewNotes.innerHTML = '';
         return;
       }
-      const p = sightParams(s.settings, s.light);
+      const inWater = SCENES.find(x => x.id === s.sceneId)?.inWater;
+      const p = sightParams(s.settings, s.light, inWater);
       // A compound eye's finest detail comes straight from its facets; a camera eye's from its measured acuity.
-      const text = sharpnessText(smallestDetail(s.settings, s.light, defaultsOf(s.exampleId)));
+      const text = sharpnessText(smallestDetail(s.settings, s.light, defaultsOf(s.exampleId), inWater));
       for (const dd of sharpness.querySelectorAll('[data-sharpness]')) dd.textContent = text[dd.dataset.sharpness];
       blindSpot = p.blindSpot;
       placeBlindTag();

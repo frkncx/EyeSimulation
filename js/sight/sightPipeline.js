@@ -20,7 +20,7 @@ import { MEASURED, TUNING } from '../model/constants.js';
 import { SCENE_W, SCENE_H } from '../scenes/scenes.js';
 
 // Every number below is in js/model/constants.js, with what it does and where it comes from.
-const { AMBLYOPIA_BANDS, HUMAN_CPD, CHART_M, DIFFRACTION_ARCMIN_MM, SUPERPOSITION_GAIN } = MEASURED;
+const { AMBLYOPIA_BANDS, HUMAN_CPD, CHART_M, DIFFRACTION_ARCMIN_MM, SUPERPOSITION_GAIN, WATER_INDEX } = MEASURED;
 const {
   FIELD_DEG, LIGHT_DECADES, REF_PUPIL_MM, SENS_POWER, TAPETUM_GAIN, ADAPTATION, GLOW_LEVEL, GLOW_POWER, SHOULDER,
   HUMAN_RODS_PER_CONE, ROD_TAKEOVER, CONE_DAY, ROD_GAIN_POWER, ROD_BLUR_POWER, CONE_FADE_PER_DECADE,
@@ -99,8 +99,8 @@ function noiseFor(count) {
   return noise;
 }
 
-/** Everything the renderer needs, worked out once from the settings and the Light slider. */
-export function sightParams(settings, light) {
+/** Everything the renderer needs, worked out once from the settings, the Light slider and whether the scene is underwater. */
+export function sightParams(settings, light, inWater = false) {
   if (settings.facets != null) return compoundParams(settings, light);
   const tapetum = settings.tapetum === 'on';
   const tapetumGain = tapetum ? TAPETUM_GAIN : 1;
@@ -146,6 +146,9 @@ export function sightParams(settings, light) {
   const focusD = vergence(focusDistanceM(settings.focus));
   const errorD = (settings.refraction ?? 0) * REFRACTION_MAX_D;
   const eyeFocusD = Math.max(0, focusD - errorD);
+  // Underwater the cornea loses nearly all its power (eyes with a curved cornea in air only; a whale's or an
+  // octopus's round lens does its focusing, so they set none). The eye is left far too weak by this much.
+  const waterD = inWater && settings.corneaRadiusMm ? (WATER_INDEX - 1) / (settings.corneaRadiusMm / 1000) : 0;
   const amblyopia = settings.amblyopia === 'on' ? settings.amblyopiaStrength : 0;
   const reach = bandReach(settings);
   const uv = reach.uv ? smoothstep(UV_FROM_NM, UV_FULL_NM, reach.lo) : 0;
@@ -153,6 +156,7 @@ export function sightParams(settings, light) {
   return {
     pupilW, pupilH, pupilScale, tapetum, night,
     focusM: eyeFocusD < FAR_FOCUS_D ? Infinity : 1 / eyeFocusD,
+    waterD,
     // An oval cornea focuses its steep direction, at a right angle to the prescription axis, more strongly.
     // The axis is measured as seen facing the eye, and the view looks out of it (mirrored), so in view
     // coordinates (y down) the blur runs along (sin axis, -cos axis): axis 180 blurs up-down, 90 sideways.
@@ -584,7 +588,9 @@ export function blurFor(distanceM, p) {
   // Amblyopia multiplies the eye's finest gap; as a gap added to it (gaps add as squares) that is this much.
   const amblyopia = p.fineArcmin * Math.sqrt(p.amblyopiaFactor ** 2 - 1);
   const axis = pupilMm => {
-    const defocus = defocusGapArcmin(distanceM, p.focusM, pupilMm);
+    // Focusing far beyond what the lens can make up for (tens of diopters underwater) blurs at every distance;
+    // it adds to the ordinary focus error (simplified: as squares).
+    const defocus = Math.hypot(defocusGapArcmin(distanceM, p.focusM, pupilMm), dioptersGapArcmin(p.waterD ?? 0, pupilMm));
     // Light spreading through the pupil (diffraction), about 2.3 arcminutes ÷ pupil width in mm.
     const fine = Math.hypot(p.fineArcmin, DIFFRACTION_ARCMIN_MM / pupilMm);
     // In the dark, rods pool their signals: more rods, blurrier (a human at night: about 20/160).
@@ -613,8 +619,8 @@ export function blurFor(distanceM, p) {
  * How blurry an eye chart 6 m away looks, in arcminutes, with the eye focused on it as well as it can
  * (nearsightedness may stop it). The same blur the view uses.
  */
-function chartBlur(settings, light) {
-  const p = sightParams(settings, light);
+function chartBlur(settings, light, inWater = false) {
+  const p = sightParams(settings, light, inWater);
   const errorD = (settings.refraction ?? 0) * REFRACTION_MAX_D;
   const nearestD = vergence(focusDistanceM(0));
   const d = Math.min(Math.max(vergence(CHART_M), -errorD, 0), nearestD - errorD);
@@ -626,10 +632,10 @@ function chartBlur(settings, light) {
  * The smallest gap this eye makes out, in arcminutes. With its own default settings in daylight it is exactly
  * its measured acuity; any blur the settings or the light add on top adds to it (blurs add as squares).
  */
-export function smallestDetail(settings, light, defaults) {
-  const own = sightParams(settings, light);
+export function smallestDetail(settings, light, defaults, inWater = false) {
+  const own = sightParams(settings, light, inWater);
   if (own.detailArcmin != null) return own.detailArcmin;
-  const now = chartBlur(settings, light);
+  const now = chartBlur(settings, light, inWater);
   const base = chartBlur(defaults, 1);
   const extra = now ** 2 - base ** 2;
   if (extra < 0) return own.acuityArcmin * now / base;

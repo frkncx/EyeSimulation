@@ -258,7 +258,7 @@ const beach = {
 };
 
 const underwater = {
-  id: 'underwater', label: 'Underwater',
+  id: 'underwater', label: 'Underwater', inWater: true,
   // Water soaks up near-infrared within about the first meter, and much of the UV.
   noIr: true, uvLevel: 0.35,
   layers: [

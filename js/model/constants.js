@@ -45,6 +45,10 @@ export const MEASURED = {
   // How far each pupil shape can close, as a share of its widest area: round about 1/15, a slit 1/135
   // (Banks et al. 2015), a horizontal slit about 0.15 (octopus). Only the slit's value has its source here.
   PUPIL_CLOSING: { round: 1 / 15, slit: 1 / 135, horizontal: 0.15 },
+  // Water's refractive index (physics). The cornea's front surface bends light by (n_cornea − n_outside) ÷ radius;
+  // underwater n_outside goes from air's 1 to water's, so it loses (WATER_INDEX − 1) ÷ radius: about 43 D for a
+  // human 7.7 mm cornea (Gullstrand schematic eye), nearly all its power.
+  WATER_INDEX: 1.333,
 };
 
 export const TUNING = {
