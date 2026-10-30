@@ -11,7 +11,7 @@
 // A compound eye blurs by its facets' acceptance angle instead (the same at every distance), skips the pupil,
 // glare and blind spot, and ends with a mosaic: one dot per facet.
 import { createCanvas, drawBlurred, supportsCanvasFilter, SRGB_TO_LINEAR, linearToSrgb } from './imageOps.js';
-import { dioptersGapArcmin, dioptersBlurArcmin, vergence, REFRACTION_MAX_D, facetAngle, facetAcceptance } from '../model/optics.js';
+import { dioptersGapArcmin, vergence, REFRACTION_MAX_D, facetAngle, facetAcceptance } from '../model/optics.js';
 import { colorStep, shiftColors, ROD_WEIGHTS } from './colorVision.js';
 import { bandReach, UV_FROM_NM, IR_FROM_NM } from '../model/spectrum.js';
 import { focusDistanceM, rodsPerCone } from '../ui/settingsPanel.js';
@@ -592,10 +592,11 @@ export class SightRenderer {
  * are the finest gaps themselves.
  */
 export function blurFor(distanceM, p) {
-  // Finest gaps (detail, amblyopia) are drawn as a blur SIGMA_PER_GAP wide per arcminute; the readout takes the
-  // gaps themselves. Focus errors are drawn as their blur circle, and read as Smith's gap.
+  // Everything is worked out as the finest gap the eye makes out, in arcminutes, as the readout shows it (focus
+  // errors as Smith's gap); the view draws each gap as a blur SIGMA_PER_GAP wide per arcminute, so a problem
+  // looks as bad as its readout says, whatever kind it is.
   const gap = p.chart ? 1 : SIGMA_PER_GAP;
-  const focusBlur = (diopters, pupilMm) => (p.chart ? dioptersGapArcmin : dioptersBlurArcmin)(diopters, pupilMm);
+  const focusBlur = dioptersGapArcmin;
   // Vision problems are drawn wider than true size so they show in the small view (the readout isn't).
   const shown = p.chart ? 1 : DEFOCUS_DISPLAY_GAIN;
   // Amblyopia multiplies the eye's finest gap; as a gap added to it (gaps add as squares) that is this much.
@@ -620,14 +621,14 @@ export function blurFor(distanceM, p) {
     const fine = Math.hypot(own, lost);
     // In the dark, rods pool their signals: more rods, blurrier (a human at night: about 20/160).
     const night = NIGHT_BLUR_OLD_PX * p.night ** 2 * p.rodBlur * REF_ARCMIN_PER_PX;
-    return Math.hypot(defocus, Math.hypot(fine, amblyopia) * gap, night);
+    return Math.hypot(Math.hypot(defocus, fine, amblyopia) * gap, night);
   };
   const bx = axis(p.pupilW, p.ownPupilW);
   const by = axis(p.pupilH, p.ownPupilH);
   const [ux, uy] = p.cylinderDir;
   // The pupil's width along the steep direction sets how much the astigmatism blurs.
   const a = p.cylinderD
-    ? focusBlur(p.cylinderD, Math.hypot(p.pupilW * ux, p.pupilH * uy)) * shown
+    ? focusBlur(p.cylinderD, Math.hypot(p.pupilW * ux, p.pupilH * uy)) * shown * gap
     : 0;
   // Add the two ovals (as spreads, like hypot does for circles), then find the long side and its angle.
   const xx = bx * bx + a * a * ux * ux;
