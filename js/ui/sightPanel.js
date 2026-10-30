@@ -36,8 +36,11 @@ function sharpnessText(arcmin) {
   const score = 20 * arcmin;
   const step = score < 100 ? 5 : 10;
   const am = arcmin < 10 ? Math.round(arcmin * 10) / 10 : Math.round(arcmin);
-  // A degree or more (compound eyes) is written in degrees instead of a fraction of one.
-  const deg = am >= 60 ? `${Math.round(am / 6) / 10} degree${am === 60 ? '' : 's'}` : `1/${Math.round(60 / am)} of a degree`;
+  // A degree or more (compound eyes) is written in degrees instead of a fraction of one; between a third of a
+  // degree and one, "1/2" or "1/1" would be too rough, so it is a decimal.
+  const n = Math.round(60 / am);
+  const deg = am >= 60 ? `${Math.round(am / 6) / 10} degree${am === 60 ? '' : 's'}`
+    : n >= 3 ? `1/${n} of a degree` : `${Math.round(am / 6) / 10} of a degree`;
   return {
     score: `20/${Math.max(step, Math.round(score / step) * step)}`,
     detail: `${am} arcminute${am === 1 ? '' : 's'} (${deg})`,
