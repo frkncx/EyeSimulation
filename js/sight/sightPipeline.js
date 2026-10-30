@@ -87,6 +87,7 @@ const IR_BLUR = IR_BLUR_OLD_PX * REF_ARCMIN_PER_PX; // arcmin of extra blur on i
 
 const GLARE_BLUR = GLARE_BLUR_OLD_PX * REF_ARCMIN_PER_PX; // arcmin: how far the glare haze spreads
 const TUBE_EDGE_BLUR = TUBE_EDGE_BLUR_OLD_PX * REF_ARCMIN_PER_PX; // arcmin: how soft a tube eye's far corners go
+const TAPETUM_SCATTER = TAPETUM_SCATTER_OLD_PX * REF_ARCMIN_PER_PX; // arcmin: a night reflector's sideways scatter
 
 // One fixed grain pattern per view size (one value per pixel), so the picture doesn't flicker between redraws.
 let noise = new Float32Array(0);
@@ -119,6 +120,7 @@ export function sightParams(settings, light, inWater = false, nearM) {
     return ((d.w * d.h) / REF_PUPIL_MM ** 2) ** SENS_POWER * tapetumGain;
   };
   const adaptedSens = daySensAt(settings.adaptedPupilMm ?? settings.pupilMm);
+  const ownPupil = pupilSizeMm({ ...settings, pupilMm: settings.adaptedPupilMm ?? settings.pupilMm }, 1);
   const adapting = light ** TUNING.DAY_ADAPTATION_POWER;
   const pupilSens = ((pupilW * pupilH) / REF_PUPIL_MM ** 2) ** SENS_POWER * tapetumGain * adaptedSens ** -adapting;
   const dilated = Math.max(0, Math.log2(daySensAt(settings.pupilMm) / adaptedSens));
@@ -157,6 +159,10 @@ export function sightParams(settings, light, inWater = false, nearM) {
   const ir = reach.ir ? smoothstep(IR_FROM_NM, IR_FULL_NM, reach.hi) : 0;
   return {
     pupilW, pupilH, pupilScale, tapetum, night,
+    // The example's own daylight pupil, which its measured acuity was found with.
+    ownPupilW: ownPupil.w, ownPupilH: ownPupil.h,
+    // Whether the eye its acuity was measured on had a night reflector.
+    ownTapetum: settings.acuityTapetum == null ? undefined : settings.acuityTapetum === 'on',
     focusM: eyeFocusD < FAR_FOCUS_D ? Infinity : 1 / eyeFocusD,
     waterD,
     // An oval cornea focuses its steep direction, at a right angle to the prescription axis, more strongly.
@@ -594,24 +600,30 @@ export function blurFor(distanceM, p) {
   const shown = p.chart ? 1 : DEFOCUS_DISPLAY_GAIN;
   // Amblyopia multiplies the eye's finest gap; as a gap added to it (gaps add as squares) that is this much.
   const amblyopia = p.fineArcmin * Math.sqrt(p.amblyopiaFactor ** 2 - 1) * shown;
-  const axis = pupilMm => {
+  const axis = (pupilMm, ownPupilMm) => {
     // Focusing far beyond what the lens can make up for (tens of diopters underwater) blurs at every distance;
     // it adds to the ordinary focus error (simplified: as squares).
     const off = Math.abs(vergence(distanceM) - vergence(p.focusM));
     const defocus = Math.hypot(focusBlur(off, pupilMm), focusBlur(p.waterD ?? 0, pupilMm)) * shown;
-    // Light spreading through the pupil (diffraction), about 2.3 arcminutes ÷ pupil width in mm.
+    // Light spreading through the pupil (diffraction), about 2.3 arcminutes ÷ pupil width in mm, and a night
+    // reflector scattering light sideways a little.
+    const now = Math.hypot(p.fineArcmin, DIFFRACTION_ARCMIN_MM / pupilMm, p.tapetum ? TAPETUM_SCATTER : 0);
+    // The view: the measured acuity already includes the spreading through the animal's own daylight pupil and its
+    // own reflector's scatter, so only a change of either changes it, the same way the readout works it out.
+    const base = Math.hypot(p.fineArcmin, DIFFRACTION_ARCMIN_MM / (ownPupilMm ?? pupilMm),
+      (p.ownTapetum ?? p.tapetum) ? TAPETUM_SCATTER : 0);
+    const own = p.chart ? now
+      : now < base ? p.fineArcmin * now / base : Math.sqrt(p.fineArcmin ** 2 + now ** 2 - base ** 2);
     // An eye smaller than the animal's own loses detail; that loss is drawn at the same gain as vision problems
     // so it shows (gaps add as squares). The eye's own detail stays at true size.
     const lost = p.chart ? 0 : Math.sqrt(Math.max(0, p.fineArcmin ** 2 - (p.ownFineArcmin ?? p.fineArcmin) ** 2)) * shown;
-    const fine = Math.hypot(p.fineArcmin, DIFFRACTION_ARCMIN_MM / pupilMm, lost);
+    const fine = Math.hypot(own, lost);
     // In the dark, rods pool their signals: more rods, blurrier (a human at night: about 20/160).
     const night = NIGHT_BLUR_OLD_PX * p.night ** 2 * p.rodBlur * REF_ARCMIN_PER_PX;
-    // A night reflector scatters light sideways a little.
-    const scatter = (p.tapetum ? TAPETUM_SCATTER_OLD_PX : 0) * REF_ARCMIN_PER_PX;
-    return Math.hypot(defocus, Math.hypot(fine, amblyopia) * gap, night, scatter);
+    return Math.hypot(defocus, Math.hypot(fine, amblyopia) * gap, night);
   };
-  const bx = axis(p.pupilW);
-  const by = axis(p.pupilH);
+  const bx = axis(p.pupilW, p.ownPupilW);
+  const by = axis(p.pupilH, p.ownPupilH);
   const [ux, uy] = p.cylinderDir;
   // The pupil's width along the steep direction sets how much the astigmatism blurs.
   const a = p.cylinderD

@@ -59,9 +59,12 @@ async function main() {
   const data = await res.json();
   const typeById = Object.fromEntries(data.types.map(t => [t.id, t]));
   const exampleById = Object.fromEntries(data.examples.map(e => [e.id, e]));
-  // An example's measured acuity holds for its own eye size and rods: remember them, so changing either changes it.
+  // An example's measured acuity holds for its own eye size, rods and night reflector: remember them, so changing
+  // any of them changes it.
   for (const { defaults } of data.examples) {
-    if (defaults.acuityCpd != null) Object.assign(defaults, { acuityEyeMm: defaults.eyeSizeMm, acuityRods: defaults.rods });
+    if (defaults.acuityCpd != null) {
+      Object.assign(defaults, { acuityEyeMm: defaults.eyeSizeMm, acuityRods: defaults.rods, acuityTapetum: defaults.tapetum });
+    }
     // Likewise its measured pupil range, for its own eye size.
     if (defaults.darkPupilMm != null) defaults.pupilRefEyeMm = defaults.eyeSizeMm;
     // Its retina is adapted to the daylight its own daylight pupil lets in.
