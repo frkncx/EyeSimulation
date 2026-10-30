@@ -22,7 +22,7 @@ import { SCENE_W, SCENE_H } from '../scenes/scenes.js';
 // Every number below is in js/model/constants.js, with what it does and where it comes from.
 const { AMBLYOPIA_BANDS, HUMAN_CPD, CHART_M, DIFFRACTION_ARCMIN_MM, SUPERPOSITION_GAIN, WATER_INDEX } = MEASURED;
 const {
-  FIELD_DEG, LIGHT_DECADES, REF_PUPIL_MM, SENS_POWER, TAPETUM_GAIN, ADAPTATION, GLOW_LEVEL, GLOW_POWER, SHOULDER,
+  FIELD_DEG, LIGHT_DECADES, REF_PUPIL_MM, REF_EYE_MM, SENS_POWER, TAPETUM_GAIN, ADAPTATION, GLOW_LEVEL, GLOW_POWER, SHOULDER,
   HUMAN_RODS_PER_CONE, ROD_TAKEOVER, CONE_DAY, ROD_GAIN_POWER, ROD_BLUR_POWER, CONE_FADE_PER_DECADE,
   CONE_NIGHT_PER_DECADE, DAZZLE, DAZZLE_RODS_LOG10, SIGMA_PER_GAP, NIGHT_BLUR_OLD_PX, TAPETUM_SCATTER_OLD_PX,
   AMBLYOPIA_CONTRAST, MID_GREY, GRAIN_LEVEL, GRAIN_MIN, GRAIN_PX, GLARE_BLUR_OLD_PX, TAPETUM_GLARE, GLARE_VEIL,
@@ -127,14 +127,17 @@ export function sightParams(settings, light, inWater = false, nearM) {
   // default) and night reflector let in, so at its defaults every eye's daylight view is normally exposed.
   // A pupil set wider than that is brighter and glarier, like after dilating eye drops; narrower is dimmer.
   // As the light falls the adaptation fades, and the widest pupil, rods and reflector set the brightness.
+  // The image's brightness goes with the pupil's area compared with the eye's size (its f-number), not the area
+  // itself: a small eye with the same pupil makes a brighter image.
+  const forEye = (REF_EYE_MM / settings.eyeSizeMm) ** 2;
   const daySensAt = pupilMm => {
     const d = pupilSizeMm({ ...settings, pupilMm }, 1);
-    return ((d.w * d.h) / REF_PUPIL_MM ** 2) ** SENS_POWER * tapetumGain;
+    return ((d.w * d.h * forEye) / REF_PUPIL_MM ** 2) ** SENS_POWER * tapetumGain;
   };
   const adaptedSens = daySensAt(settings.adaptedPupilMm ?? settings.pupilMm);
   const ownPupil = pupilSizeMm({ ...settings, pupilMm: settings.adaptedPupilMm ?? settings.pupilMm }, 1);
   const adapting = light ** TUNING.DAY_ADAPTATION_POWER;
-  const pupilSens = ((pupilW * pupilH) / REF_PUPIL_MM ** 2) ** SENS_POWER * tapetumGain * adaptedSens ** -adapting;
+  const pupilSens = ((pupilW * pupilH * forEye) / REF_PUPIL_MM ** 2) ** SENS_POWER * tapetumGain * adaptedSens ** -adapting;
   const dilated = Math.max(0, Math.log2(daySensAt(settings.pupilMm) / adaptedSens));
   // Rods and cones (eyes without them keep the plain model). Rods add sensitivity once the light is dim;
   // an eye with fewer cones than a human's is less sharp and less colorful in daylight, and a very

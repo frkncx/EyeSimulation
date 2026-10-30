@@ -61,6 +61,11 @@ export const TUNING = {
   LIGHT_DECADES: 4,
   // The pupil size brightness, grain and infrared blur are measured against: 4 mm (a human's in daylight).
   REF_PUPIL_MM: 4,
+  // ...in a 24 mm eye (a human's). How bright the image on the retina is depends on the pupil compared with the
+  // eye's focal length, (pupil ÷ focal length)² (Hughes 1977; Land 1981), and the focal length is taken as the
+  // same share of every eye's size (0.7, as for the f-number on the Pupil slider), so a pupil counts relative to
+  // its eye's size.
+  REF_EYE_MM: 24,
   // Brightness grows a little slower than pupil area.
   SENS_POWER: 0.6,
   // How much brighter a night reflector (tapetum) makes the view.
