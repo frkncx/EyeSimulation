@@ -45,3 +45,5 @@ Build the 3D models for Mirror, Pinhole and Cup eyes, one per commit, following 
 - **Status:** Mirror done (e7d46af; its settings and scene view are not built yet). Next: Pinhole (nautilus), then Cup (flatworm).
 - Approved 2026-10-29, in progress: the bird pecten (a comb-like part over the blind spot) for the eagle and owl.
 - Future example: net-casting spider (*Deinopis*), a camera eye built for night: eyes up to 1.4 mm, f/0.58 (Blest & Land 1977).
+- Future example: a fish, a water eye that is nearsighted in air (round lens, no pinhole pupil like the dolphin's). Needs its own sources.
+- Future: two eyes. Show both eyes' views together, so one eye covers the other's blind spot, with each animal's own overlap.
