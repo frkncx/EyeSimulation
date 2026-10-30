@@ -141,11 +141,13 @@ export function sightParams(settings, light, inWater = false, nearM) {
   // Photons from each point of the scene grow with the pupil's area in mm² (not its f-number): few photons, more grain.
   const photons = illum * ((pupilW * pupilH) / REF_PUPIL_MM ** 2) * tapetumGain * (1 + (rodGain - 1) * dim);
   const grain = GRAIN_LEVEL / Math.sqrt(photons);
-  // Nearsighted (refraction < 0): the eye is too strong and can't relax enough for far things.
-  // Farsighted (> 0): it is too weak, so it can't strain enough for near things.
-  const focusD = vergence(focusDistanceM(settings.focus, nearM));
+  // The Focus slider is where the eye looks; it focuses there as well as it can (as the Sharpness readout does).
+  // Nearsighted (refraction < 0): the eye is too strong and can't relax past its far point (25 cm at −4 D), so
+  // things farther than that blur, the farthest most. Farsighted (> 0): it is too weak, so it strains even for far
+  // things, and runs out of strain sooner for near ones (10 cm at full strain with no error).
+  const lookD = vergence(focusDistanceM(settings.focus, nearM));
   const errorD = (settings.refraction ?? 0) * REFRACTION_MAX_D;
-  const eyeFocusD = Math.max(0, focusD - errorD);
+  const eyeFocusD = Math.min(Math.max(lookD, -errorD, 0), vergence(focusDistanceM(0)) - errorD);
   // Underwater the cornea loses nearly all its power (eyes with a curved cornea in air only; a whale's or an
   // octopus's round lens does its focusing, so they set none). The eye is left far too weak by this much.
   const waterD = inWater && settings.corneaRadiusMm ? (WATER_INDEX - 1) / (settings.corneaRadiusMm / 1000) : 0;
