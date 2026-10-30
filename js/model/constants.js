@@ -114,9 +114,9 @@ export const TUNING = {
   // that gap keeps about 5% of its contrast, near the limit of seeing it.
   SIGMA_PER_GAP: 0.78,
   // The view shows a 60° scene on a panel that covers only a few degrees of the viewer's own sight, so true-size
-  // blur shrinks with it. Focus errors (Sphere, near and far, Cylinder, underwater), amblyopia and the detail lost
-  // by an eye smaller than the animal's own are drawn this many times wider so they show; the Sharpness readout
-  // stays at true size.
+  // blur shrinks with it. Focus errors (Sphere, Cylinder, underwater), amblyopia and the detail lost by an eye
+  // smaller than the animal's own are drawn this many times wider so they show; the Sharpness readout stays at
+  // true size. The ordinary blur of things nearer or farther than where the eye looks is not a problem: true size.
   DEFOCUS_DISPLAY_GAIN: 4,
   // In the dark, rods pool their signals (a human at night: about 20/160): blur in pixels of the old 640-pixel view.
   NIGHT_BLUR_OLD_PX: 1.4,

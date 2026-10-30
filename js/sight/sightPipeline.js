@@ -165,6 +165,9 @@ export function sightParams(settings, light, inWater = false, nearM) {
   const lookD = vergence(focusDistanceM(settings.focus, nearM));
   const errorD = (settings.refraction ?? 0) * REFRACTION_MAX_D;
   const eyeFocusD = Math.min(Math.max(lookD, -errorD, 0), vergence(focusDistanceM(0)) - errorD);
+  // Where an eye without the error would focus: the blur it would have anyway (things nearer or farther than where
+  // it looks) is drawn at true size, only the extra the error adds is a vision problem.
+  const healthyD = Math.min(Math.max(lookD, 0), vergence(focusDistanceM(0)));
   // Underwater the cornea loses nearly all its power (eyes with a curved cornea in air only; a whale's or an
   // octopus's round lens does its focusing, so they set none). The eye is left far too weak by this much.
   const waterD = inWater && settings.corneaRadiusMm ? (WATER_INDEX - 1) / (settings.corneaRadiusMm / 1000) : 0;
@@ -181,6 +184,7 @@ export function sightParams(settings, light, inWater = false, nearM) {
     // Whether the eye its acuity was measured on had a night reflector.
     ownTapetum: settings.acuityTapetum == null ? undefined : settings.acuityTapetum === 'on',
     focusM: eyeFocusD < FAR_FOCUS_D ? Infinity : 1 / eyeFocusD,
+    healthyFocusM: healthyD < FAR_FOCUS_D ? Infinity : 1 / healthyD,
     waterD,
     // An oval cornea focuses its steep direction, at a right angle to the prescription axis, more strongly.
     // The axis is measured as seen facing the eye, and the view looks out of it (mirrored), so in view
@@ -623,7 +627,11 @@ export function blurFor(distanceM, p) {
     // Focusing far beyond what the lens can make up for (tens of diopters underwater) blurs at every distance;
     // it adds to the ordinary focus error (simplified: as squares).
     const off = Math.abs(vergence(distanceM) - vergence(p.focusM));
-    const defocus = Math.hypot(focusBlur(off, pupilMm), focusBlur(p.waterD ?? 0, pupilMm)) * shown;
+    // Things nearer or farther than where the eye looks blur for any eye, at true size; only the extra a focusing
+    // error (Sphere) adds is drawn wider, like the other vision problems.
+    const normal = p.healthyFocusM === undefined ? off : Math.abs(vergence(distanceM) - vergence(p.healthyFocusM));
+    const drawnOff = off > normal ? normal + (off - normal) * shown : off;
+    const defocus = Math.hypot(focusBlur(drawnOff, pupilMm), focusBlur(p.waterD ?? 0, pupilMm) * shown);
     // Light spreading through the pupil (diffraction), about 2.3 arcminutes ÷ pupil width in mm, and a night
     // reflector scattering light sideways a little.
     const now = Math.hypot(p.fineArcmin, DIFFRACTION_ARCMIN_MM / pupilMm, p.tapetum ? TAPETUM_SCATTER : 0);
