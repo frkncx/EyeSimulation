@@ -165,7 +165,9 @@ export function sightParams(settings, light, inWater = false, nearM) {
   // Underwater the cornea loses nearly all its power (eyes with a curved cornea in air only; a whale's or an
   // octopus's round lens does its focusing, so they set none). The eye is left far too weak by this much.
   const waterD = inWater && settings.corneaRadiusMm ? (WATER_INDEX - 1) / (settings.corneaRadiusMm / 1000) : 0;
-  const amblyopia = settings.amblyopia === 'on' ? settings.amblyopiaStrength : 0;
+  // Amblyopia is in one eye: with both eyes open, the brain relies on the other, healthy one.
+  const amblyopic = settings.amblyopia === 'on' && settings.eyes !== 'both';
+  const amblyopia = amblyopic ? settings.amblyopiaStrength : 0;
   const reach = bandReach(settings);
   const uv = reach.uv ? smoothstep(UV_FROM_NM, UV_FULL_NM, reach.lo) : 0;
   const ir = reach.ir ? smoothstep(IR_FROM_NM, IR_FULL_NM, reach.hi) : 0;
@@ -184,7 +186,7 @@ export function sightParams(settings, light, inWater = false, nearM) {
     cylinderDir: settings.astigmatism === 'on'
       ? [Math.sin(settings.axisDeg * Math.PI / 180), -Math.cos(settings.axisDeg * Math.PI / 180)] : [1, 0],
     // The brain's lost sharpness, the same at every distance: the eye's finest gap times this.
-    amblyopiaFactor: settings.amblyopia === 'on' ? 10 ** amblyopiaLogMar(amblyopia) : 1,
+    amblyopiaFactor: amblyopic ? 10 ** amblyopiaLogMar(amblyopia) : 1,
     contrast: 1 - AMBLYOPIA_CONTRAST * amblyopia,
     exposure: illum ** ADAPTATION * sens,
     glowGain: GLOW_LEVEL * illum ** -GLOW_POWER * sens,
