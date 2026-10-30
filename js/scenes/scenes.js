@@ -122,14 +122,23 @@ const garden = {
         ellipse(ctx, x, y, 70, 22, a);
         ctx.fill();
       }
-      stem(ctx, 120, 400, 120, 330, 8);
-      flower(ctx, 120, 320, 70, '#f6c419', '#5a3418', 14);
-      stem(ctx, 540, 400, 530, 350, 7);
-      flower(ctx, 530, 345, 52, '#d42a22', '#1d1a18', 5);
+      // About 8 and 6 cm across at 45 cm (the view is 60° over 640 pixels).
+      stem(ctx, 120, 400, 120, 345, 6);
+      flower(ctx, 120, 340, 45, '#f6c419', '#5a3418', 14);
+      stem(ctx, 270, 400, 265, 365, 5);
+      flower(ctx, 265, 362, 35, '#d42a22', '#1d1a18', 5);
     },
     uv(ctx) {
-      uvFlower(ctx, 120, 320, 70, 14);
-      uvFlower(ctx, 530, 345, 52, 5);
+      uvFlower(ctx, 120, 340, 45, 14);
+      uvFlower(ctx, 265, 362, 35, 5);
+    } },
+    // A flower held close, about 6 cm across: sharp for a nearsighted eye, too close for a farsighted one.
+    { distanceM: 0.12, draw(ctx) {
+      stem(ctx, 560, 400, 545, 310, 14);
+      flower(ctx, 545, 300, 125, '#e86aa8', '#f2c21b', 8);
+    },
+    uv(ctx) {
+      uvFlower(ctx, 545, 300, 125, 8);
     } },
   ],
 };
