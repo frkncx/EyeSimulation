@@ -247,7 +247,7 @@ export function buildCameraEye({
   refraction = 0, astigmatism = 'off', cylinderD = 1.5, axisDeg = 180, eyeShape = 'round', rods = null,
   peaks = null, lensCutoffNm = null, uvLens = 'none', rays = { uv: false, ir: false }, lensFocus = 'shape',
   spots = [{ part: 'fovea' }], darkPupilMm, pupilRefEyeMm, blindSpot, pecten = null, drawZoom = 1, pitLens = false,
-  side = null, marks = [],
+  side = null, marks = [], cupRatio = 0, lensSpots = 0, pupilStrands = 0,
 } = {}) {
   const reach = bandReach({ peaks, lensCutoffNm, uvLens });
   // The eye is built with its temple side at +x and then mirrored, so it is a right eye (its optic disc on the
@@ -359,6 +359,15 @@ export function buildCameraEye({
   const pupilShapePath = new THREE.Shape().absellipse(0, 0, pupilRx, pupilRy, 0, Math.PI * 2, false);
   const pupil = mesh('pupil', new THREE.ShapeGeometry(pupilShapePath, 64), material('#040404', { roughness: 1 }));
   pupil.position.z = irisZ - 0.05;
+  // Strands left from the membrane that covers the pupil before birth (`pupilStrands`), a common harmless leftover:
+  // thin threads from the iris's inner ring partly across the pupil. Where and how many is a person's own.
+  const strandMat = material(irisColor, { roughness: 0.9 });
+  const collarette = t => new THREE.Vector3(
+    (pupilRx + 0.35 * (irisR - pupilRx)) * Math.cos(t), (pupilRy + 0.35 * (irisR - pupilRy)) * Math.sin(t), irisZ + 0.05);
+  for (let i = 0; i < pupilStrands; i++) {
+    const t = 0.6 + i * 2.4;
+    group.add(cylinderBetween('pupilMembrane', collarette(t), collarette(t + 2.4), 0.05, strandMat));
+  }
   group.add(pupil);
 
   // Lens: flatter at the front than at the back. Focusing near makes it rounder and thicker.
@@ -391,6 +400,17 @@ export function buildCameraEye({
   group.add(mesh('lens', lathe(lens), material(lensTinted ? '#f3e7b0' : '#eef5f7', {
     transparent: true, opacity: lensTinted ? 0.6 : 0.4, roughness: 0.15,
   })));
+  // Tiny fluid bubbles just inside the back of the lens (`lensSpots`, lens vacuoles), around its back middle, on the
+  // half that stays when the eye is cut open (x ≤ 0).
+  const vacuoleMat = material('#ffffff', { transparent: true, opacity: 0.85, roughness: 0.3 });
+  for (let i = 0; i < lensSpots; i++) {
+    const a = Math.PI - 0.25 - 0.12 * i;
+    const turn = Math.PI + (i - (lensSpots - 1) / 2) * 0.9;
+    const r = lensShape.r * Math.sin(a) * 0.95;
+    const dot = mesh('lensVacuoles', new THREE.SphereGeometry(0.14, 12, 8), vacuoleMat);
+    dot.position.set(r * Math.cos(turn), r * Math.sin(turn), lensShape.z + lensShape.back * Math.cos(a) * 0.95);
+    group.add(dot);
+  }
 
   // Vitreous gel: fills the eye from just behind the lens and focus muscle back to the retina.
   // Profile: up the inside of the wall, in toward the lens, then along the back of the lens to the axis
@@ -446,6 +466,13 @@ export function buildCameraEye({
       spot.position.copy(disc);
       spot.lookAt(center);
       group.add(spot);
+      // The paler dip in the middle of the disc (`cupRatio`: its width over the disc's, the cup-to-disc ratio).
+      if (cupRatio) {
+        const cup = mesh('opticCup', new THREE.CircleGeometry(cupRatio, 48), material('#fbf3dc', { roughness: 0.8 }));
+        cup.position.copy(fromCenter(nerveDir, onRetina - 0.02));
+        cup.lookAt(center);
+        group.add(cup);
+      }
     } else {
       // A bird's disc is as big as its blind spot, curved to lie on the retina. Directions on it: `inward` toward
       // the middle of the eye, `along` its long side (up and down), `across` the other way.
@@ -604,6 +631,9 @@ export function buildCameraEye({
     { part: 'tapetum', position: fromCenter(v(-0.3, 0.35, -0.89), backR - 1), side: 'left', inner: true },
     { part: 'pecten', position: pectenLabelAt, side: 'right', inner: true },
     ...markLabels,
+    ...(cupRatio && wiringInFront && !pecten ? [{ part: 'opticCup', position: fromCenter(nerveDir, onRetina - 0.02), side: 'right', inner: true }] : []),
+    ...(lensSpots ? [{ part: 'lensVacuoles', position: v(0, 0, lensShape.z - lensShape.back), side: 'left', inner: true }] : []),
+    ...(pupilStrands ? [{ part: 'pupilMembrane', position: collarette(0.6).lerp(collarette(3), 0.5), side: 'left' }] : []),
     ...Object.entries(rayTails).map(([part, position]) => ({ part, position, side: 'left' })),
   ].filter(a => (a.part !== 'blindSpot' || wiringInFront) && (a.part !== 'tapetum' || hasTapetum) &&
     (a.part !== 'pecten' || pectenLabelAt));
