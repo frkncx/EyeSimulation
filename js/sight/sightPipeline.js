@@ -653,9 +653,10 @@ export function blurFor(distanceM, p) {
   const bx = axis(p.pupilW, p.ownPupilW);
   const by = axis(p.pupilH, p.ownPupilH);
   const [ux, uy] = p.cylinderDir;
-  // The pupil's width along the steep direction sets how much the astigmatism blurs.
+  // The pupil's width along the steep direction sets how much the astigmatism blurs. Drawn at true size: it blurs
+  // at every distance, so drawn wider it hid things the eye sees clearly (a near flower for a nearsighted eye).
   const a = p.cylinderD
-    ? focusBlur(p.cylinderD, Math.hypot(p.pupilW * ux, p.pupilH * uy)) * shown * gap
+    ? focusBlur(p.cylinderD, Math.hypot(p.pupilW * ux, p.pupilH * uy)) * gap
     : 0;
   // Add the two ovals (as spreads, like hypot does for circles), then find the long side and its angle.
   const xx = bx * bx + a * a * ux * ux;
